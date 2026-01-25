@@ -1,7 +1,6 @@
 import hopsworks
 import pandas as pd
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error
@@ -9,82 +8,64 @@ import joblib
 import os
 from dotenv import load_dotenv
 
-# 1. Connect to Hopsworks
+# 1. Connect
 load_dotenv()
 project = hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
 fs = project.get_feature_store()
 
-# 2. Retrieve NEW Hourly Data
-print("📊 Fetching Hourly Data from Feature Store...")
+# 2. Get the Data (History)
 try:
     aqi_fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
     df = aqi_fg.select_all().read()
 except:
-    print("⚠️ Could not find 'aqi_features_hourly'. Did you run the backfill?")
+    print("⚠️ Data not found. Run backfill first!")
     exit()
 
-# 3. Prepare Data
 df = df.sort_values(by="timestamp")
 
-# Create Targets: Predict Next 3 HOURS
-# (We shift -1, -2, -3 to predict h+1, h+2, h+3)
-df['target_h1'] = df['aqi'].shift(-1)
-df['target_h2'] = df['aqi'].shift(-2)
-df['target_h3'] = df['aqi'].shift(-3)
+# ---------------------------------------------------------
+# 🎯 THE CRITICAL CHANGE FOR YOUR GOAL
+# We create 72 separate targets (Hour 1 to Hour 72)
+# ---------------------------------------------------------
+print("⏳ Creating targets for next 72 Hours (3 Days)...")
+targets = []
+for i in range(1, 73):  # Loop from 1 to 72
+    col_name = f'target_h{i}'
+    # Shift data 'i' steps back so the model learns to look 'i' hours ahead
+    df[col_name] = df['aqi'].shift(-i) 
+    targets.append(col_name)
+
 df = df.dropna()
+print(f"✅ Created {len(targets)} future targets for the model to learn.")
 
-print(f"✅ Training Data Created: {len(df)} rows")
-
+# 3. Define Input Features (What we know NOW)
 features = ['aqi', 'pm25', 'pm10', 'temp', 'humidity']
-targets = ['target_h1', 'target_h2', 'target_h3']
 
-X = df[features]
-y = df[targets]
+X = df[features]       # Input: Current conditions
+y = df[targets]        # Output: Next 72 hours of AQI
 
-# Split data (80% Train, 20% Test)
+# 4. Train the Model
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
 
-# 4. Define the 3 Models to Fight
-models = {
-    "Linear_Regression": LinearRegression(),
-    "Random_Forest": RandomForestRegressor(n_estimators=50, max_depth=10, n_jobs=-1),
-    "Gradient_Boosting": GradientBoostingRegressor(n_estimators=100)
-}
+print("🥊 Training 3-Day Forecaster (Gradient Boosting)...")
+# We use MultiOutputRegressor so it can output 72 numbers at once
+model = MultiOutputRegressor(GradientBoostingRegressor(n_estimators=100))
+model.fit(X_train, y_train)
 
-best_mae = float("inf")
-best_model = None
-best_name = ""
+# 5. Evaluate & Save
+preds = model.predict(X_test)
+mae = mean_absolute_error(y_test, preds)
+print(f"🏆 Average Error across 3 Days: {round(mae, 2)}")
 
-print(f"\n🥊 Starting Model Battle...")
+joblib.dump(model, "best_aqi_model.pkl")
 
-for name, model in models.items():
-    # Wrap in MultiOutput for 3-step prediction
-    wrapped_model = MultiOutputRegressor(model)
-    wrapped_model.fit(X_train, y_train)
-    
-    preds = wrapped_model.predict(X_test)
-    mae = mean_absolute_error(y_test, preds)
-    
-    print(f"   👉 {name}: MAE = {round(mae, 2)}")
-    
-    if mae < best_mae:
-        best_mae = mae
-        best_model = wrapped_model
-        best_name = name
-
-print(f"\n🏆 WINNER: {best_name} (Error: {round(best_mae, 2)})")
-
-# 5. Save the Winner
-joblib.dump(best_model, "best_aqi_model.pkl")
-
-# Register Model
-print("💾 Saving best model to Registry...")
+# Register
 mr = project.get_model_registry()
 hopsworks_model = mr.python.create_model(
     name="aqi_hourly_predictor",
-    metrics={"mae": best_mae},
-    description=f"Best model ({best_name}) for 3-Hour Prediction"
+    metrics={"mae": mae},
+    description="Predicts next 72 hours (3 Days) based on hourly data"
 )
 hopsworks_model.save("best_aqi_model.pkl")
 
-print("✅ Model Training Complete!")
+print("✅ 72-Hour Model Successfully Saved!")
