@@ -1,0 +1,27 @@
+name: Daily Model Retraining
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs every day at Midnight UTC
+  workflow_dispatch:      # Allows manual click
+
+jobs:
+  train-model:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v3
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 📦 Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: 🥊 Retrain & Save Model
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        run: python training_pipeline/train_model.py
