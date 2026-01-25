@@ -1,6 +1,8 @@
-hopsworks
+hopsworks==4.2.*
 pandas
 scikit-learn
 joblib
 python-dotenv
 requests
+pyarrow
+numpy
