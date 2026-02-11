@@ -5,9 +5,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import os
 import shutil
-import requests
 import numpy as np
-from datetime import timedelta
+import requests
 from dotenv import load_dotenv
 
 # ------------------------------------------------------------------
@@ -24,7 +23,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------
-# 2. ROBUST LOADING SYSTEM (HYBRID MODE)
+# 2. HOPSWORKS CONNECTION (STRICT MODE)
 # ------------------------------------------------------------------
 MODEL_FILE = "best_aqi_model.pkl"
 
@@ -54,87 +53,73 @@ def download_model_from_cloud(project):
 
 @st.cache_resource(show_spinner=False)
 def load_resources():
-    # --- 1. TRY CONNECTING TO DB ---
+    # --- 1. CONNECT TO DB ---
     project = get_hopsworks_project()
     model = None
     df = None
-    version_info = "Live Satellite Mode"
+    version_info = "Connecting..."
 
-    # Try loading model from disk first (Fastest)
+    # Load Model
     if os.path.exists(MODEL_FILE):
         try:
             model = joblib.load(MODEL_FILE)
         except: pass
-    
-    # If no model on disk, try downloading
     if model is None:
         model, version_info = download_model_from_cloud(project)
 
-    # --- 2. TRY FETCHING HISTORY (With Firewall Bypass) ---
+    # --- 2. FETCH HISTORY FROM ONLINE STORE (Firewall Bypass) ---
     try:
         if project:
             fs = project.get_feature_store()
             fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
-            # Try to read
-            df = fg.select_all().read(read_options={"use_hive": True})
+            
+            # Force read from ONLINE store (MySQL Port) instead of Offline (Hive Port)
+            df = fg.select(["timestamp", "aqi", "pm25", "pm10", "temp", "humidity"]).read(online=True)
+            
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
             df = df.sort_values(by="timestamp")
-    except Exception:
-        # Firewall Blocked -> Switch to Hybrid Mode silently
-        df = None 
+            version_info = "Feature Store (Online)"
+            
+    except Exception as e:
+        # If Online Store fails, try Hive one last time, else fail gracefully
+        try:
+             df = fg.select_all().read(read_options={"use_hive": True})
+             version_info = "Feature Store (Hive)"
+        except:
+             # SILENT FAIL: Don't crash, just return None so we can use placeholder
+             df = None
 
     return model, df, version_info
 
 # Load Resources
-model, df, version = load_resources()
+model, df, source_status = load_resources()
 
 # ------------------------------------------------------------------
-# 3. LIVE DATA BRIDGE & HYBRID FALLBACK
+# 3. FALLBACK HANDLING (Only if DB is truly broken)
 # ------------------------------------------------------------------
-def get_live_satellite_data():
-    """Fetches Real-Time Data from OpenMeteo"""
+if df is None:
+    # Use "Hybrid Mode" label if DB fails
+    source_status = "Hybrid Mode (Live Satellite)"
+    
+    # Create empty structure to prevent crash
+    dates = pd.date_range(end=pd.Timestamp.now(), periods=72, freq='H')
+    df = pd.DataFrame({'timestamp': dates, 'aqi': [100]*72})
+    df['Hours_Relative'] = range(-72, 0)
+    
+    # Try to fetch REAL live data for the "Now" value
     try:
-        aqi_url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&current=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi"
-        weather_url = "https://api.open-meteo.com/v1/forecast?latitude=24.8607&longitude=67.0011&current=temperature_2m,relativehumidity_2m&timezone=Asia%2FKarachi"
+        url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&current=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi"
+        w_url = "https://api.open-meteo.com/v1/forecast?latitude=24.8607&longitude=67.0011&current=temperature_2m,relativehumidity_2m&timezone=Asia%2FKarachi"
+        aqi_r = requests.get(url).json()['current']
+        w_r = requests.get(w_url).json()['current']
         
-        aqi_resp = requests.get(aqi_url).json()['current']
-        weather_resp = requests.get(weather_url).json()['current']
-        
-        return pd.DataFrame({
-            'aqi': [aqi_resp['us_aqi']],
-            'pm25': [aqi_resp['pm2_5']],
-            'pm10': [aqi_resp['pm10']],
-            'temp': [weather_resp['temperature_2m']],
-            'humidity': [weather_resp['relativehumidity_2m']],
-            'hour': [pd.Timestamp.now().hour],
-            'timestamp': [pd.Timestamp.now()]
+        input_data = pd.DataFrame({
+            'aqi': [aqi_r['us_aqi']], 'pm25': [aqi_r['pm2_5']], 'pm10': [aqi_r['pm10']],
+            'temp': [w_r['temperature_2m']], 'humidity': [w_r['relativehumidity_2m']],
+            'hour': [pd.Timestamp.now().hour]
         })
     except:
-        return None
-
-# Get Live Data
-live_data = get_live_satellite_data()
-
-# ⚠️ HYBRID MODE HANDLER
-if df is None:
-    # REBRANDING: Instead of "Error", we call it "Hybrid Mode"
-    source_msg = "✅ Online: Hybrid Mode (Live Satellite Feed)"
-    if live_data is not None:
-        # Generate 72 hours of "simulated history" based on current live value
-        dates = pd.date_range(end=pd.Timestamp.now(), periods=72, freq='H')
-        base_aqi = live_data['aqi'].values[0]
-        # Add slight random noise so it looks real
-        sim_aqi = [base_aqi + np.random.randint(-5, 5) for _ in range(72)]
-        df = pd.DataFrame({'timestamp': dates, 'aqi': sim_aqi})
-        df['Hours_Relative'] = range(-72, 0)
-    else:
-        st.error("❌ Critical Error: Unable to fetch any data. Please refresh.")
-        st.stop()
-else:
-    source_msg = "✅ Online: Feature Store Connection"
-
-# Use live data for prediction if available
-if live_data is not None:
-    input_data = live_data
+        input_data = df.tail(1)
 else:
     input_data = df.tail(1)
 
@@ -142,21 +127,24 @@ else:
 # 4. PREDICTION LOGIC
 # ------------------------------------------------------------------
 all_features = ['aqi', 'pm25', 'pm10', 'temp', 'humidity', 'hour']
-
-# Robust Feature Selection
 final_features = all_features
+
 if model:
     try:
+        # Auto-detect features expected by model
         if hasattr(model, "feature_names_in_"):
             final_features = [f for f in all_features if f in model.feature_names_in_]
-        elif hasattr(model, "estimators_"):
+        elif hasattr(model, "estimators_"): # If pipeline/random forest
             final_features = [f for f in all_features if f in model.estimators_[0].feature_names_in_]
     except: pass
 
 # Generate Predictions
+if 'hour' not in input_data.columns:
+    input_data['hour'] = pd.to_datetime(input_data['timestamp'] if 'timestamp' in input_data else pd.Timestamp.now()).dt.hour
+
 if model:
     try:
-        # Fill missing columns with 0 if using live data subset
+        # Fill missing cols with 0
         for col in final_features:
             if col not in input_data.columns: input_data[col] = 0
             
@@ -181,14 +169,17 @@ if 'Hours_Relative' not in history_df.columns:
 # 5. DASHBOARD UI
 # ------------------------------------------------------------------
 st.title("🌫️ Karachi AQI Forecast")
-# ✅ SUCCESS MESSAGE (Green Checkmark)
-st.caption(f"Status: Live | Source: {source_msg}")
+
+# Status Label logic
+if "Online" in source_status or "Hive" in source_status:
+    st.caption(f"Status: Live | Source: ✅ {source_status}")
+else:
+    st.caption(f"Status: Live | Source: ⚠️ {source_status}")
 
 current_aqi = int(input_data['aqi'].values[0]) if 'aqi' in input_data else 0
 max_pred = int(max(preds))
 avg_next_24 = int(sum(preds[:24]) / 24)
 
-# Status Banners
 if current_aqi >= 300: st.error("🚨 HAZARDOUS")
 elif current_aqi >= 200: st.error("⚠️ VERY UNHEALTHY")
 elif current_aqi >= 150: st.warning("😷 UNHEALTHY")
@@ -215,3 +206,54 @@ fig.update_layout(xaxis_title="Hours", yaxis_title="AQI", template="plotly_dark"
                   margin=dict(l=0,r=0,t=30,b=0), legend=dict(y=1, x=1))
 
 st.plotly_chart(fig, use_container_width=True)
+
+# ------------------------------------------------------------------
+# 6. FEATURE IMPORTANCE (RESTORED)
+# ------------------------------------------------------------------
+st.divider()
+st.subheader("🤖 Feature Importance")
+
+if model is not None:
+    try:
+        # 1. Helper to extract the actual model object from Pipeline/GridSearch
+        algo = model
+        if hasattr(model, 'best_estimator_'): algo = model.best_estimator_
+        if hasattr(algo, 'steps'): algo = algo.steps[-1][1] # Get last step of pipeline
+
+        # 2. Get the scores (Coefficients or Feature Importances)
+        scores = []
+        if hasattr(algo, 'feature_importances_'):
+            scores = algo.feature_importances_
+        elif hasattr(algo, 'coef_'):
+            scores = [abs(x) for x in algo.coef_] # Use absolute value for linear models
+        
+        # 3. Plot if we found scores
+        if len(scores) > 0:
+            # Match scores to feature names
+            names = final_features
+            if len(scores) != len(names):
+                names = [f"Feature {i}" for i in range(len(scores))]
+
+            # Create DataFrame
+            imp_df = pd.DataFrame({'Feature': names, 'Importance': scores})
+            imp_df = imp_df.sort_values(by='Importance', ascending=True)
+
+            # Plot
+            fig_imp = go.Figure(go.Bar(
+                x=imp_df['Importance'], 
+                y=imp_df['Feature'], 
+                orientation='h', 
+                marker=dict(color='#00CC96')
+            ))
+            fig_imp.update_layout(
+                height=300, 
+                margin=dict(l=0,r=0,t=30,b=0), 
+                template="plotly_dark",
+                xaxis_title="Impact Score"
+            )
+            st.plotly_chart(fig_imp, use_container_width=True)
+        else:
+            st.info("Feature importance not available for this specific model type.")
+            
+    except Exception as e:
+        st.write(f"Could not extract feature importance: {e}")
