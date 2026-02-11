@@ -208,90 +208,77 @@ fig.update_layout(xaxis_title="Hours", yaxis_title="AQI", template="plotly_dark"
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 6. FEATURE IMPORTANCE (UNIVERSAL UNPACKER)
+# 6. FEATURE IMPORTANCE (SENSITIVITY ANALYSIS)
 # ------------------------------------------------------------------
 st.divider()
-st.subheader("🤖 Feature Importance")
+st.subheader("🤖 Feature Importance (Real-Time Sensitivity)")
 
-def safe_extract_importance(model, feature_names):
+def get_sensitivity_scores(model, row, features):
     """
-    Unwraps any complex Sklearn model (GridSearch, Pipeline, etc.) 
-    to find coefficients or feature importance.
+    Wiggles each feature by 20% to see how much the AQI prediction changes.
+    Works on ANY model structure (Black Box approach).
     """
     try:
-        # 1. Unwrap GridSearchCV / RandomizedSearchCV
-        est = model
-        if hasattr(est, 'best_estimator_'): 
-            est = est.best_estimator_
+        # 1. Get Baseline Prediction
+        base_df = row[features].copy()
+        for col in base_df.columns: 
+            if base_df[col].dtype == 'object': base_df[col] = 0 # Safety fix
+        base_pred = model.predict(base_df)
+        if isinstance(base_pred, (list, np.ndarray)): base_pred = base_pred[0]
         
-        # 2. Unwrap Pipeline (Get the last step, usually the regressor)
-        if hasattr(est, 'steps'):
-            # If named 'regressor' or 'model', grab it. Else grab last step.
-            step_dict = dict(est.steps)
-            if 'regressor' in step_dict: est = step_dict['regressor']
-            elif 'model' in step_dict: est = step_dict['model']
-            else: est = est.steps[-1][1]
-
-        # 3. Extract Scores (Coefficients or Importance)
-        scores = None
-        if hasattr(est, 'feature_importances_'):
-            scores = est.feature_importances_
-        elif hasattr(est, 'coef_'):
-            import numpy as np
-            scores = np.abs(est.coef_) # Absolute value for linear models
-            if scores.ndim > 1: scores = scores.flatten() # Flatten 2D arrays
+        scores = {}
         
-        # 4. Return if found
-        if scores is not None and len(scores) > 0:
-            # Handle Length Mismatch (e.g. One-Hot Encoding increased feature count)
-            if len(scores) != len(feature_names):
-                # Return with generic names if length doesn't match
-                gen_names = [f"Feature {i}" for i in range(len(scores))]
-                return pd.DataFrame({'Feature': gen_names, 'Importance': scores})
+        # 2. Test each feature
+        for col in features:
+            temp_df = base_df.copy()
             
-            return pd.DataFrame({'Feature': feature_names, 'Importance': scores})
+            # Wiggle the value by +20% (or +1 if 0)
+            original_val = temp_df[col].values[0]
+            if original_val == 0:
+                temp_df[col] = 1.0
+            else:
+                temp_df[col] = original_val * 1.2
+                
+            # Predict again
+            new_pred = model.predict(temp_df)
+            if isinstance(new_pred, (list, np.ndarray)): new_pred = new_pred[0]
             
+            # Score = How much did the prediction change?
+            impact = abs(new_pred - base_pred)
+            scores[col] = impact
+            
+        return scores
     except Exception as e:
-        print(f"Extraction Error: {e}")
+        st.error(f"Sensitivity Calc Error: {e}")
         return None
 
-    return None
+# Calculate Scores
+scores_dict = get_sensitivity_scores(model, input_data, final_features)
 
-# Execute Extraction
-imp_df = safe_extract_importance(model, final_features)
-
-if imp_df is not None:
-    # ✅ SUCCESS: Plot Real Importance
+if scores_dict:
+    # Convert to DataFrame
+    imp_df = pd.DataFrame(list(scores_dict.items()), columns=['Feature', 'Importance'])
     imp_df = imp_df.sort_values(by='Importance', ascending=True)
+
+    # Normalize for better visualization (0 to 100 scale)
+    if imp_df['Importance'].max() > 0:
+        imp_df['Importance'] = (imp_df['Importance'] / imp_df['Importance'].max()) * 100
+
+    # Plot
     fig_imp = go.Figure(go.Bar(
         x=imp_df['Importance'], 
         y=imp_df['Feature'], 
         orientation='h', 
         marker=dict(color='#00CC96')
     ))
+    
     fig_imp.update_layout(
         height=300, 
         margin=dict(l=0,r=0,t=30,b=0), 
         template="plotly_dark",
-        xaxis_title="Impact Score (Absolute)"
+        xaxis_title="Relative Impact on Forecast (%)",
+        hovermode="y unified"
     )
     st.plotly_chart(fig_imp, use_container_width=True)
-
 else:
-    # ⚠️ FALLBACK: If model is too complex, just show which features are used
-    # This ensures the UI is never empty!
-    st.info("Showing Model Inputs (Exact importance values hidden by model wrapper)")
-    dummy_df = pd.DataFrame({'Feature': final_features, 'Status': [1]*len(final_features)})
-    fig_imp = go.Figure(go.Bar(
-        x=dummy_df['Status'], 
-        y=dummy_df['Feature'], 
-        orientation='h', 
-        marker=dict(color='#00CC96')
-    ))
-    fig_imp.update_layout(
-        height=300, 
-        margin=dict(l=0,r=0,t=30,b=0), 
-        template="plotly_dark",
-        xaxis=dict(showticklabels=False, title="Active Features")
-    )
-    st.plotly_chart(fig_imp, use_container_width=True)
+    st.info("Sensitivity analysis requires a live model.")
