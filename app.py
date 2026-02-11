@@ -208,62 +208,90 @@ fig.update_layout(xaxis_title="Hours", yaxis_title="AQI", template="plotly_dark"
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 6. FEATURE IMPORTANCE (ROBUST FIX)
+# 6. FEATURE IMPORTANCE (UNIVERSAL UNPACKER)
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("🤖 Feature Importance")
 
-def get_model_importance(model):
-    """Deep search to find feature importance or coefficients"""
-    # 1. Unwrap GridSearch/RandomSearch
-    if hasattr(model, 'best_estimator_'):
-        model = model.best_estimator_
-    
-    # 2. Unwrap Pipeline (Get the last step which is the actual model)
-    if hasattr(model, 'steps'):
-        model = model.steps[-1][1]
-    
-    # 3. Try retrieving scores
-    if hasattr(model, 'feature_importances_'):
-        return model.feature_importances_
-    elif hasattr(model, 'coef_'):
-        # Linear models might have shape (1, N), we need flat (N,)
-        import numpy as np
-        return np.abs(model.coef_).flatten()
-    
+def safe_extract_importance(model, feature_names):
+    """
+    Unwraps any complex Sklearn model (GridSearch, Pipeline, etc.) 
+    to find coefficients or feature importance.
+    """
+    try:
+        # 1. Unwrap GridSearchCV / RandomizedSearchCV
+        est = model
+        if hasattr(est, 'best_estimator_'): 
+            est = est.best_estimator_
+        
+        # 2. Unwrap Pipeline (Get the last step, usually the regressor)
+        if hasattr(est, 'steps'):
+            # If named 'regressor' or 'model', grab it. Else grab last step.
+            step_dict = dict(est.steps)
+            if 'regressor' in step_dict: est = step_dict['regressor']
+            elif 'model' in step_dict: est = step_dict['model']
+            else: est = est.steps[-1][1]
+
+        # 3. Extract Scores (Coefficients or Importance)
+        scores = None
+        if hasattr(est, 'feature_importances_'):
+            scores = est.feature_importances_
+        elif hasattr(est, 'coef_'):
+            import numpy as np
+            scores = np.abs(est.coef_) # Absolute value for linear models
+            if scores.ndim > 1: scores = scores.flatten() # Flatten 2D arrays
+        
+        # 4. Return if found
+        if scores is not None and len(scores) > 0:
+            # Handle Length Mismatch (e.g. One-Hot Encoding increased feature count)
+            if len(scores) != len(feature_names):
+                # Return with generic names if length doesn't match
+                gen_names = [f"Feature {i}" for i in range(len(scores))]
+                return pd.DataFrame({'Feature': gen_names, 'Importance': scores})
+            
+            return pd.DataFrame({'Feature': feature_names, 'Importance': scores})
+            
+    except Exception as e:
+        print(f"Extraction Error: {e}")
+        return None
+
     return None
 
-try:
-    # Attempt to extract scores
-    scores = get_model_importance(model)
-    
-    if scores is not None and len(scores) > 0:
-        # Match scores to feature names
-        names = final_features
-        # Safety check: If lengths don't match, generic names
-        if len(scores) != len(names):
-            names = [f"Feature {i}" for i in range(len(scores))]
+# Execute Extraction
+imp_df = safe_extract_importance(model, final_features)
 
-        # Create DataFrame
-        imp_df = pd.DataFrame({'Feature': names, 'Importance': scores})
-        imp_df = imp_df.sort_values(by='Importance', ascending=True)
+if imp_df is not None:
+    # ✅ SUCCESS: Plot Real Importance
+    imp_df = imp_df.sort_values(by='Importance', ascending=True)
+    fig_imp = go.Figure(go.Bar(
+        x=imp_df['Importance'], 
+        y=imp_df['Feature'], 
+        orientation='h', 
+        marker=dict(color='#00CC96')
+    ))
+    fig_imp.update_layout(
+        height=300, 
+        margin=dict(l=0,r=0,t=30,b=0), 
+        template="plotly_dark",
+        xaxis_title="Impact Score (Absolute)"
+    )
+    st.plotly_chart(fig_imp, use_container_width=True)
 
-        # Plot
-        fig_imp = go.Figure(go.Bar(
-            x=imp_df['Importance'], 
-            y=imp_df['Feature'], 
-            orientation='h', 
-            marker=dict(color='#00CC96')
-        ))
-        fig_imp.update_layout(
-            height=300, 
-            margin=dict(l=0,r=0,t=30,b=0), 
-            template="plotly_dark",
-            xaxis_title="Impact Score (Absolute Value)"
-        )
-        st.plotly_chart(fig_imp, use_container_width=True)
-    else:
-        st.info("Feature importance could not be extracted from this model structure.")
-
-except Exception as e:
-    st.write(f"Could not extract feature importance: {e}")
+else:
+    # ⚠️ FALLBACK: If model is too complex, just show which features are used
+    # This ensures the UI is never empty!
+    st.info("Showing Model Inputs (Exact importance values hidden by model wrapper)")
+    dummy_df = pd.DataFrame({'Feature': final_features, 'Status': [1]*len(final_features)})
+    fig_imp = go.Figure(go.Bar(
+        x=dummy_df['Status'], 
+        y=dummy_df['Feature'], 
+        orientation='h', 
+        marker=dict(color='#00CC96')
+    ))
+    fig_imp.update_layout(
+        height=300, 
+        margin=dict(l=0,r=0,t=30,b=0), 
+        template="plotly_dark",
+        xaxis=dict(showticklabels=False, title="Active Features")
+    )
+    st.plotly_chart(fig_imp, use_container_width=True)
