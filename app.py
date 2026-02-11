@@ -79,7 +79,8 @@ def load_resources():
             df = fg.select_all().read(read_options={"use_hive": True})
             df = df.sort_values(by="timestamp")
     except Exception as e:
-        print(f"⚠️ Database blocked by firewall: {e}")
+        # ✅ DEBUG MODE: Print the specific error to the screen
+        st.error(f"❌ HOPWORKS ERROR: {str(e)}")
         df = None # Trigger fallback generation
 
     return model, df, version_info
