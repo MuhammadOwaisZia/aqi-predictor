@@ -1,9 +1,10 @@
-hopsworks==4.2.*
+streamlit
+hopsworks
 pandas
 scikit-learn
-joblib
+shap
+matplotlib
+seaborn
 python-dotenv
-requests
-pyarrow
 numpy
-confluent-kafka
+joblib

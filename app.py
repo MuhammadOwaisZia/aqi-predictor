@@ -4,211 +4,246 @@ import joblib
 import pandas as pd
 import plotly.graph_objects as go
 import os
+import shutil
+import requests
 from dotenv import load_dotenv
 
 # ------------------------------------------------------------------
-# 1. PAGE CONFIGURATION & STYLING
+# 1. PAGE CONFIGURATION
 # ------------------------------------------------------------------
-st.set_page_config(
-    page_title="Karachi AQI Forecast",
-    page_icon="🌫️",
-    layout="wide"  # Use the full screen width
-)
+st.set_page_config(page_title="Karachi AQI Forecast", page_icon="🌫️", layout="wide")
 
-# Custom CSS to hide default menu and style the metrics
+# CSS: Cleaner Look & Visible Menu
 st.markdown("""
 <style>
-    .block-container {padding-top: 2rem;}
-    [data-testid="stMetricValue"] {
-        font-size: 2.5rem;
-        font-weight: bold;
-    }
-    .stAlert {
-        padding: 0.5rem;
-    }
+    .block-container { padding-top: 2rem; padding-left: 1rem; padding-right: 1rem; }
+    [data-testid="stMetricValue"] { font-size: 2rem !important; overflow: visible !important; }
+    [data-testid="column"] { min-width: 150px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------
-# 2. CONNECT TO BACKEND (CACHED)
+# 2. FAST LOADING SYSTEM (DISK CACHE)
 # ------------------------------------------------------------------
-@st.cache_resource
-def load_resources():
+MODEL_FILE = "best_aqi_model.pkl"
+
+def get_hopsworks_project():
     load_dotenv()
-    project = hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
+    return hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
+
+def download_model_from_cloud(project):
+    """Force downloads the latest model from Hopsworks"""
+    with st.spinner("☁️ Downloading latest AI Brain... (This takes time)"):
+        mr = project.get_model_registry()
+        models = mr.get_models("aqi_hourly_predictor")
+        best_model = sorted(models, key=lambda x: x.version)[-1]
+        
+        # Download to a temporary folder
+        temp_dir = best_model.download()
+        
+        # Move it to our main folder for next time
+        source_path = os.path.join(temp_dir, MODEL_FILE)
+        if os.path.exists(source_path):
+            shutil.copy(source_path, MODEL_FILE)
+            
+        return joblib.load(MODEL_FILE), best_model.version
+
+@st.cache_resource(show_spinner=False)
+def load_resources():
+    project = get_hopsworks_project()
     fs = project.get_feature_store()
     
-    # Get Model
-    mr = project.get_model_registry()
-    model = mr.get_model("aqi_hourly_predictor", version=1)
-    model_dir = model.download()
-    loaded_model = joblib.load(model_dir + "/best_aqi_model.pkl")
+    # --- 1. MODEL LOADING STRATEGY ---
+    model = None
+    version_info = "Local Cache"
     
-    # Get Data
-    fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
-    df = fg.select_all().read()
-    df = df.sort_values(by="timestamp")
-    
-    return loaded_model, df
+    # Strategy A: Load from Local Disk (FAST)
+    if os.path.exists(MODEL_FILE):
+        try:
+            model = joblib.load(MODEL_FILE)
+            print("✅ Loaded Model from Disk (Fast Mode)")
+        except:
+            pass # If corrupted, fall back to download
 
-# Load resources with a spinner
-with st.spinner("📡 Connecting to Hopsworks AI Cloud..."):
-    model, df = load_resources()
+    # Strategy B: Download from Cloud (SLOW but necessary once)
+    if model is None:
+        model, version_info = download_model_from_cloud(project)
+    
+    # --- 2. DATA LOADING ---
+    with st.spinner("📊 Fetching History Data..."):
+        fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
+        df = fg.select_all().read()
+        df = df.sort_values(by="timestamp")
+
+    return model, df, version_info
+
+# Load Resources
+model, df, version = load_resources()
 
 # ------------------------------------------------------------------
-# 3. DATA PROCESSING
+# 3. LIVE DATA BRIDGE (The Fix for "87 vs 156")
 # ------------------------------------------------------------------
-# Get the most recent data point for prediction
-latest_data = df.tail(1)
-features = ['aqi', 'pm25', 'pm10', 'temp', 'humidity']
+def get_live_satellite_data():
+    """Bypasses database lag and fetches Real-Time AQI directly"""
+    try:
+        # Fetch Real-Time Data for Karachi
+        aqi_url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&current=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi"
+        weather_url = "https://api.open-meteo.com/v1/forecast?latitude=24.8607&longitude=67.0011&current=temperature_2m,relativehumidity_2m&timezone=Asia%2FKarachi"
+        
+        aqi_resp = requests.get(aqi_url).json()['current']
+        weather_resp = requests.get(weather_url).json()['current']
+        
+        # Create a single-row DataFrame with the LIVE numbers
+        return pd.DataFrame({
+            'aqi': [aqi_resp['us_aqi']],
+            'pm25': [aqi_resp['pm2_5']],
+            'pm10': [aqi_resp['pm10']],
+            'temp': [weather_resp['temperature_2m']],
+            'humidity': [weather_resp['relativehumidity_2m']],
+            'hour': [pd.Timestamp.now().hour]
+        })
+    except Exception:
+        return None # If API fails, we fall back to database
 
-# Predict (Handles both 3-hour and 72-hour models automatically)
+# Try to get LIVE data
+live_data = get_live_satellite_data()
+
+if live_data is not None:
+    latest_data = live_data
+    source_msg = "✅ Using Live Satellite Data"
+else:
+    # Fallback to Database if internet fails
+    latest_data = df.tail(1).copy()
+    latest_data['hour'] = pd.to_datetime(latest_data['timestamp']).dt.hour
+    source_msg = "⚠️ Using Database (Might be delayed)"
+
+# ------------------------------------------------------------------
+# 4. PREDICTION LOGIC
+# ------------------------------------------------------------------
+all_features = ['aqi', 'pm25', 'pm10', 'temp', 'humidity', 'hour']
+
+# Auto-Fix Features
 try:
-    preds = model.predict(latest_data[features])[0]
-except:
-    preds = model.predict(latest_data[features]) # Handle different array shapes
+    if hasattr(model, "feature_names_in_"):
+        required = list(model.feature_names_in_)
+    elif hasattr(model, "estimators_"): 
+        required = list(model.estimators_[0].feature_names_in_)
+    else: required = all_features
+except: required = all_features
+
+final_features = [f for f in all_features if f in required]
+
+# Predict
+try: preds = model.predict(latest_data[final_features])[0]
+except: preds = model.predict(latest_data[final_features])
 
 num_preds = len(preds)
-
-# Create Forecast DataFrame
 future_hours = range(1, num_preds + 1)
-forecast_df = pd.DataFrame({
-    "Hours Ahead": future_hours,
-    "Predicted AQI": preds
-})
-
-# Get History (Last 3 days / 72 hours)
+forecast_df = pd.DataFrame({"Hours Ahead": future_hours, "Predicted AQI": preds})
 history_df = df.tail(72).copy()
 history_df['Hours_Relative'] = range(-len(history_df), 0)
 
 # ------------------------------------------------------------------
-# 4. DASHBOARD UI
+# 5. DASHBOARD UI
 # ------------------------------------------------------------------
+st.title("🌫️ Karachi AQI Forecast")
+st.caption(f"Status: Live | Source: {source_msg}")
 
-# HEADER
-st.title("🌫️ Karachi Air Quality Index Forecast")
-st.markdown(f"**Status:** Real-time AI prediction based on data from **{latest_data['city'].values[0]}**.")
-
-# KEY METRICS ROW
-col1, col2, col3, col4 = st.columns(4)
-
-# Calculate Stats
 current_aqi = int(latest_data['aqi'].values[0])
 max_pred = int(max(preds))
-avg_next_24 = int(sum(preds[:24]) / 24) if num_preds >= 24 else int(sum(preds) / num_preds)
+avg_next_24 = int(sum(preds[:24]) / 24)
+
+# 🚨 HAZARDOUS ALERTS (Visual Banners) 
+if current_aqi >= 300:
+    st.error("🚨 HAZARDOUS AIR QUALITY WARNING: Avoid all outdoor exertion.")
+elif current_aqi >= 200:
+    st.error("⚠️ VERY UNHEALTHY: Active children and adults should avoid outdoor exertion.")
+elif current_aqi >= 150:
+    st.warning("😷 UNHEALTHY: Sensitive groups should wear masks.")
+
+# --- Helper to get AQI Label & Color ---
+def get_aqi_label(aqi_value):
+    if aqi_value <= 50: return "Good 🌱", "normal"
+    elif aqi_value <= 100: return "Moderate 😐", "off" 
+    elif aqi_value <= 150: return "Unhealthy (Sens.) 😷", "inverse"
+    elif aqi_value <= 200: return "Unhealthy 🔴", "inverse"
+    elif aqi_value <= 300: return "Very Unhealthy 🟣", "inverse"
+    else: return "Hazardous ☠️", "inverse"
+
+col1, col2, col3, col4 = st.columns(4)
+
+# Get dynamic labels
+curr_label, curr_color = get_aqi_label(current_aqi)
+peak_label, peak_color = get_aqi_label(max_pred)
 
 with col1:
-    st.metric(label="📍 Current AQI", value=current_aqi, delta="Verified Now")
+    st.metric("📍 Current AQI", current_aqi, delta=curr_label, delta_color=curr_color)
 with col2:
-    st.metric(label="🔮 Next 24h Average", value=avg_next_24, delta=avg_next_24-current_aqi, delta_color="inverse")
+    st.metric("🔮 Next 24h Avg", avg_next_24, delta=f"{avg_next_24-current_aqi} vs Now", delta_color="inverse")
 with col3:
-    st.metric(label="⚠️ Peak Predicted", value=max_pred, delta="Highest Forecast", delta_color="off")
+    st.metric("⚠️ Peak Predicted", max_pred, delta=peak_label, delta_color=peak_color)
 with col4:
-    st.metric(label="🕒 Forecast Horizon", value=f"{num_preds} Hours", delta="Live Model")
+    st.metric("🕒 Horizon", f"{num_preds} Hours")
 
 st.divider()
 
-# INTERACTIVE GRAPH (PLOTLY)
-st.subheader("📈 3-Day Trends (History vs. AI Forecast)")
+# ✅ HEADING
+st.subheader("📈 Next 3 Days Forecast")
 
+# ✅ ENHANCED GRAPH (Clean & Professional)
 fig = go.Figure()
 
-# 1. Plot History (Blue Area)
+# 1. Past Data (Blue Area)
 fig.add_trace(go.Scatter(
     x=history_df['Hours_Relative'], 
     y=history_df['aqi'],
     mode='lines',
-    name='Past 72h (Actual)',
+    name='History (Past 72h)',
     line=dict(color='#00B4D8', width=3),
-    fill='tozeroy', # Fills area under line
-    fillcolor='rgba(0, 180, 216, 0.1)'
+    fill='tozeroy',
+    fillcolor='rgba(0, 180, 216, 0.1)',
+    hovertemplate='<b>Past</b><br>Hour: %{x}<br>AQI: %{y}<extra></extra>' 
 ))
 
-# 2. Plot Forecast (Red Dotted Line)
+# 2. Future Forecast (Red Dotted)
 fig.add_trace(go.Scatter(
     x=forecast_df['Hours Ahead'], 
     y=forecast_df['Predicted AQI'],
     mode='lines+markers',
-    name='Next 72h (AI Forecast)',
+    name='Forecast (Next 72h)',
     line=dict(color='#FF4B4B', width=3, dash='dot'),
-    marker=dict(size=6)
+    marker=dict(size=5, color='#FF4B4B'),
+    hovertemplate='<b>Future</b><br>Hour: +%{x}<br>AQI: %{y}<extra></extra>' 
 ))
 
-# 3. Add "Current Time" Line
+# 3. "NOW" Line
 fig.add_vline(x=0, line_width=2, line_dash="dash", line_color="white", annotation_text="NOW")
 
-# 4. Make it pretty
+# 4. Professional Layout
 fig.update_layout(
-    xaxis_title="Time (Hours from Now)",
+    xaxis_title="Timeline (Hours)",
     yaxis_title="AQI Level",
-    hovermode="x unified",
-    height=500,
+    hovermode="x unified", 
+    height=450,
     showlegend=True,
-    template="plotly_dark", # Fits your dark theme requirement
-    margin=dict(l=0, r=0, t=30, b=0)
+    # ✅ Legend moved to the RIGHT side
+    legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99, bgcolor="rgba(0,0,0,0)"), 
+    template="plotly_dark",
+    margin=dict(l=0,r=0,t=30,b=0)
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-# RAW DATA SECTION
-with st.expander("📂 View Raw Sensor Data & Predictions"):
-    tab1, tab2 = st.tabs(["🔮 Future Forecast", "📜 Past History"])
-    
-    with tab1:
-        st.dataframe(forecast_df, use_container_width=True)
-    
-    with tab2:
-        st.dataframe(history_df[['timestamp', 'aqi', 'pm25', 'temp', 'humidity']].sort_values(by='timestamp', ascending=False), use_container_width=True)
+with st.expander("📂 Raw Data"):
+    st.dataframe(forecast_df, use_container_width=True)
 
-# ------------------------------------------------------------------
-# 5. EXPLAINABILITY (Why is AQI High?) - CORRECTED SECTION
-# ------------------------------------------------------------------
 st.divider()
-st.subheader("🤖 Model Explanations (Feature Importance)")
-
-try:
-    # 1. Get the specific model for the first hour (T+1)
-    if hasattr(model, 'estimators_'):
-        inner_model = model.estimators_[0]
-        
-        # 2. Check: Is it a Tree (Random Forest) or Line (Linear Regression)?
-        if hasattr(inner_model, 'feature_importances_'):
-            # It's a Tree Model
-            scores = inner_model.feature_importances_
-        elif hasattr(inner_model, 'coef_'):
-            # It's Linear Regression (Use absolute value of coefficients)
-            scores = [abs(x) for x in inner_model.coef_]
-        else:
-            scores = [0] * 5
-
-        feature_names = ['aqi', 'pm25', 'pm10', 'temp', 'humidity']
-
-        # 3. Create DataFrame
-        importance_df = pd.DataFrame({
-            'Feature': feature_names,
-            'Importance': scores
-        }).sort_values(by='Importance', ascending=True)
-
-        # 4. Plot Bar Chart
-        fig_imp = go.Figure(go.Bar(
-            x=importance_df['Importance'],
-            y=importance_df['Feature'],
-            orientation='h',
-            marker=dict(color='#00CC96')
-        ))
-
-        fig_imp.update_layout(
-            title="Which weather factors influence the AI most?",
-            xaxis_title="Impact Score (Magnitude)",
-            height=300,
-            margin=dict(l=0, r=0, t=30, b=0),
-            template="plotly_dark"
-        )
-
+st.subheader("🤖 Feature Importance")
+if hasattr(model, 'estimators_'):
+    inner = model.estimators_[0]
+    scores = inner.feature_importances_ if hasattr(inner, 'feature_importances_') else [abs(x) for x in inner.coef_]
+    if len(scores) == len(final_features):
+        imp_df = pd.DataFrame({'Feature': final_features, 'Importance': scores}).sort_values(by='Importance', ascending=True)
+        fig_imp = go.Figure(go.Bar(x=imp_df['Importance'], y=imp_df['Feature'], orientation='h', marker=dict(color='#00CC96')))
+        fig_imp.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), template="plotly_dark")
         st.plotly_chart(fig_imp, use_container_width=True)
-        st.caption("This chart explains which inputs have the biggest impact on the prediction.")
-    else:
-        st.info("This model type does not support simple feature importance.")
-
-except Exception as e:
-    st.warning(f"Could not load explanations: {e}")
