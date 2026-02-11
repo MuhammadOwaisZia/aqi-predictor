@@ -36,6 +36,8 @@ def download_model_from_cloud(project):
     with st.spinner("☁️ Downloading latest AI Brain... (This takes time)"):
         mr = project.get_model_registry()
         models = mr.get_models("aqi_hourly_predictor")
+        
+        # Get the absolute latest version
         best_model = sorted(models, key=lambda x: x.version)[-1]
         
         # Download to a temporary folder
@@ -72,7 +74,10 @@ def load_resources():
     # --- 2. DATA LOADING ---
     with st.spinner("📊 Fetching History Data..."):
         fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
-        df = fg.select_all().read()
+        
+        # ✅ CRITICAL FIX: Force HTTP mode to bypass Streamlit Firewall
+        df = fg.select_all().read(read_options={"use_hive": True})
+        
         df = df.sort_values(by="timestamp")
 
     return model, df, version_info
@@ -240,10 +245,15 @@ with st.expander("📂 Raw Data"):
 st.divider()
 st.subheader("🤖 Feature Importance")
 if hasattr(model, 'estimators_'):
-    inner = model.estimators_[0]
-    scores = inner.feature_importances_ if hasattr(inner, 'feature_importances_') else [abs(x) for x in inner.coef_]
-    if len(scores) == len(final_features):
-        imp_df = pd.DataFrame({'Feature': final_features, 'Importance': scores}).sort_values(by='Importance', ascending=True)
-        fig_imp = go.Figure(go.Bar(x=imp_df['Importance'], y=imp_df['Feature'], orientation='h', marker=dict(color='#00CC96')))
-        fig_imp.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), template="plotly_dark")
-        st.plotly_chart(fig_imp, use_container_width=True)
+    try:
+        inner = model.estimators_[0]
+        scores = inner.feature_importances_ if hasattr(inner, 'feature_importances_') else [abs(x) for x in inner.coef_]
+        
+        # Ensure lengths match before plotting
+        if len(scores) == len(final_features):
+            imp_df = pd.DataFrame({'Feature': final_features, 'Importance': scores}).sort_values(by='Importance', ascending=True)
+            fig_imp = go.Figure(go.Bar(x=imp_df['Importance'], y=imp_df['Feature'], orientation='h', marker=dict(color='#00CC96')))
+            fig_imp.update_layout(height=300, margin=dict(l=0,r=0,t=30,b=0), template="plotly_dark")
+            st.plotly_chart(fig_imp, use_container_width=True)
+    except:
+        st.write("Feature importance not available for this model type.")
