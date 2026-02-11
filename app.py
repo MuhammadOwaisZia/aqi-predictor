@@ -208,7 +208,7 @@ fig.update_layout(xaxis_title="Hours", yaxis_title="AQI", template="plotly_dark"
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 6. FEATURE IMPORTANCE (SENSITIVITY ANALYSIS)
+# 6. FEATURE IMPORTANCE (SENSITIVITY ANALYSIS - CRASH PROOF)
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("🤖 Feature Importance (Real-Time Sensitivity)")
@@ -216,15 +216,20 @@ st.subheader("🤖 Feature Importance (Real-Time Sensitivity)")
 def get_sensitivity_scores(model, row, features):
     """
     Wiggles each feature by 20% to see how much the AQI prediction changes.
-    Works on ANY model structure (Black Box approach).
+    Includes strict type checking to prevent Pandas crashes.
     """
     try:
         # 1. Get Baseline Prediction
+        # Ensure input is a proper DataFrame
         base_df = row[features].copy()
-        for col in base_df.columns: 
-            if base_df[col].dtype == 'object': base_df[col] = 0 # Safety fix
+        
+        # Predict
         base_pred = model.predict(base_df)
-        if isinstance(base_pred, (list, np.ndarray)): base_pred = base_pred[0]
+        
+        # FORCE SCALAR: Extract simple number from array/list
+        if hasattr(base_pred, "item"): base_pred = base_pred.item()
+        elif isinstance(base_pred, (list, np.ndarray)): base_pred = base_pred[0]
+        base_pred = float(base_pred)
         
         scores = {}
         
@@ -241,9 +246,13 @@ def get_sensitivity_scores(model, row, features):
                 
             # Predict again
             new_pred = model.predict(temp_df)
-            if isinstance(new_pred, (list, np.ndarray)): new_pred = new_pred[0]
             
-            # Score = How much did the prediction change?
+            # FORCE SCALAR
+            if hasattr(new_pred, "item"): new_pred = new_pred.item()
+            elif isinstance(new_pred, (list, np.ndarray)): new_pred = new_pred[0]
+            new_pred = float(new_pred)
+            
+            # Score = Absolute Change
             impact = abs(new_pred - base_pred)
             scores[col] = impact
             
@@ -258,9 +267,12 @@ scores_dict = get_sensitivity_scores(model, input_data, final_features)
 if scores_dict:
     # Convert to DataFrame
     imp_df = pd.DataFrame(list(scores_dict.items()), columns=['Feature', 'Importance'])
+    
+    # ✅ FIX: Ensure column is float before sorting
+    imp_df['Importance'] = imp_df['Importance'].astype(float)
     imp_df = imp_df.sort_values(by='Importance', ascending=True)
 
-    # Normalize for better visualization (0 to 100 scale)
+    # Normalize (0-100%)
     if imp_df['Importance'].max() > 0:
         imp_df['Importance'] = (imp_df['Importance'] / imp_df['Importance'].max()) * 100
 
