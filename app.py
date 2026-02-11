@@ -206,30 +206,30 @@ fig.update_layout(xaxis_title="Hours", yaxis_title="AQI", template="plotly_dark"
                   margin=dict(l=0,r=0,t=30,b=0), legend=dict(y=1, x=1))
 
 st.plotly_chart(fig, use_container_width=True)
-
 # ------------------------------------------------------------------
-# 6. FEATURE IMPORTANCE (SENSITIVITY ANALYSIS - CRASH PROOF)
+# 6. FEATURE IMPORTANCE (MULTI-OUTPUT COMPATIBLE)
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("🤖 Feature Importance (Real-Time Sensitivity)")
 
 def get_sensitivity_scores(model, row, features):
     """
-    Wiggles each feature by 20% to see how much the AQI prediction changes.
-    Includes strict type checking to prevent Pandas crashes.
+    Calculates feature importance by wiggling inputs.
+    Compatible with Single-Output AND Multi-Output (Forecast) models.
     """
     try:
         # 1. Get Baseline Prediction
-        # Ensure input is a proper DataFrame
         base_df = row[features].copy()
         
-        # Predict
+        # Ensure numeric types
+        for col in base_df.columns:
+            if base_df[col].dtype == 'object': base_df[col] = 0
+            
         base_pred = model.predict(base_df)
         
-        # FORCE SCALAR: Extract simple number from array/list
-        if hasattr(base_pred, "item"): base_pred = base_pred.item()
-        elif isinstance(base_pred, (list, np.ndarray)): base_pred = base_pred[0]
-        base_pred = float(base_pred)
+        # Handle Output: Ensure it's a numpy array for math
+        import numpy as np
+        if isinstance(base_pred, list): base_pred = np.array(base_pred)
         
         scores = {}
         
@@ -246,14 +246,14 @@ def get_sensitivity_scores(model, row, features):
                 
             # Predict again
             new_pred = model.predict(temp_df)
+            if isinstance(new_pred, list): new_pred = np.array(new_pred)
             
-            # FORCE SCALAR
-            if hasattr(new_pred, "item"): new_pred = new_pred.item()
-            elif isinstance(new_pred, (list, np.ndarray)): new_pred = new_pred[0]
-            new_pred = float(new_pred)
+            # 3. Calculate Impact (Robust Method)
+            # We take the mean difference across all predicted hours
+            # This works if model outputs 1 number OR 24 numbers
+            diff = np.abs(new_pred - base_pred)
+            impact = np.mean(diff) 
             
-            # Score = Absolute Change
-            impact = abs(new_pred - base_pred)
             scores[col] = impact
             
         return scores
@@ -268,11 +268,10 @@ if scores_dict:
     # Convert to DataFrame
     imp_df = pd.DataFrame(list(scores_dict.items()), columns=['Feature', 'Importance'])
     
-    # ✅ FIX: Ensure column is float before sorting
-    imp_df['Importance'] = imp_df['Importance'].astype(float)
+    # Sort
     imp_df = imp_df.sort_values(by='Importance', ascending=True)
 
-    # Normalize (0-100%)
+    # Normalize (0-100%) for cleaner graph
     if imp_df['Importance'].max() > 0:
         imp_df['Importance'] = (imp_df['Importance'] / imp_df['Importance'].max()) * 100
 
