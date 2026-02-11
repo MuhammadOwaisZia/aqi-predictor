@@ -208,52 +208,62 @@ fig.update_layout(xaxis_title="Hours", yaxis_title="AQI", template="plotly_dark"
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 6. FEATURE IMPORTANCE (RESTORED)
+# 6. FEATURE IMPORTANCE (ROBUST FIX)
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("🤖 Feature Importance")
 
-if model is not None:
-    try:
-        # 1. Helper to extract the actual model object from Pipeline/GridSearch
-        algo = model
-        if hasattr(model, 'best_estimator_'): algo = model.best_estimator_
-        if hasattr(algo, 'steps'): algo = algo.steps[-1][1] # Get last step of pipeline
+def get_model_importance(model):
+    """Deep search to find feature importance or coefficients"""
+    # 1. Unwrap GridSearch/RandomSearch
+    if hasattr(model, 'best_estimator_'):
+        model = model.best_estimator_
+    
+    # 2. Unwrap Pipeline (Get the last step which is the actual model)
+    if hasattr(model, 'steps'):
+        model = model.steps[-1][1]
+    
+    # 3. Try retrieving scores
+    if hasattr(model, 'feature_importances_'):
+        return model.feature_importances_
+    elif hasattr(model, 'coef_'):
+        # Linear models might have shape (1, N), we need flat (N,)
+        import numpy as np
+        return np.abs(model.coef_).flatten()
+    
+    return None
 
-        # 2. Get the scores (Coefficients or Feature Importances)
-        scores = []
-        if hasattr(algo, 'feature_importances_'):
-            scores = algo.feature_importances_
-        elif hasattr(algo, 'coef_'):
-            scores = [abs(x) for x in algo.coef_] # Use absolute value for linear models
-        
-        # 3. Plot if we found scores
-        if len(scores) > 0:
-            # Match scores to feature names
-            names = final_features
-            if len(scores) != len(names):
-                names = [f"Feature {i}" for i in range(len(scores))]
+try:
+    # Attempt to extract scores
+    scores = get_model_importance(model)
+    
+    if scores is not None and len(scores) > 0:
+        # Match scores to feature names
+        names = final_features
+        # Safety check: If lengths don't match, generic names
+        if len(scores) != len(names):
+            names = [f"Feature {i}" for i in range(len(scores))]
 
-            # Create DataFrame
-            imp_df = pd.DataFrame({'Feature': names, 'Importance': scores})
-            imp_df = imp_df.sort_values(by='Importance', ascending=True)
+        # Create DataFrame
+        imp_df = pd.DataFrame({'Feature': names, 'Importance': scores})
+        imp_df = imp_df.sort_values(by='Importance', ascending=True)
 
-            # Plot
-            fig_imp = go.Figure(go.Bar(
-                x=imp_df['Importance'], 
-                y=imp_df['Feature'], 
-                orientation='h', 
-                marker=dict(color='#00CC96')
-            ))
-            fig_imp.update_layout(
-                height=300, 
-                margin=dict(l=0,r=0,t=30,b=0), 
-                template="plotly_dark",
-                xaxis_title="Impact Score"
-            )
-            st.plotly_chart(fig_imp, use_container_width=True)
-        else:
-            st.info("Feature importance not available for this specific model type.")
-            
-    except Exception as e:
-        st.write(f"Could not extract feature importance: {e}")
+        # Plot
+        fig_imp = go.Figure(go.Bar(
+            x=imp_df['Importance'], 
+            y=imp_df['Feature'], 
+            orientation='h', 
+            marker=dict(color='#00CC96')
+        ))
+        fig_imp.update_layout(
+            height=300, 
+            margin=dict(l=0,r=0,t=30,b=0), 
+            template="plotly_dark",
+            xaxis_title="Impact Score (Absolute Value)"
+        )
+        st.plotly_chart(fig_imp, use_container_width=True)
+    else:
+        st.info("Feature importance could not be extracted from this model structure.")
+
+except Exception as e:
+    st.write(f"Could not extract feature importance: {e}")
