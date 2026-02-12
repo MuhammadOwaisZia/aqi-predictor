@@ -128,60 +128,46 @@ else:
     preds = [input_data['aqi'].values[0]] * 24
 
 # ------------------------------------------------------------------
-# 5. DASHBOARD UI - ENHANCED FORECAST GRAPH
+# 5. DASHBOARD UI
 # ------------------------------------------------------------------
-st.subheader("📈 Forecast Analysis (Next 72 Hours)")
+st.title("🌫️ Karachi AQI Forecast")
+st.caption(f"Status: Live | Source: ✅ {source_status}")
 
-# Prepare data for plotting
+def get_metric_info(v):
+    if v <= 50: return "Good 🌱", "normal"
+    elif v <= 100: return "Moderate 😐", "off" 
+    elif v <= 150: return "Unhealthy (Sens.) 😷", "inverse"
+    elif v <= 200: return "Unhealthy 🔴", "inverse"
+    elif v <= 300: return "Very Unhealthy 🟣", "inverse"
+    else: return "Hazardous ☠️", "inverse"
+
+cur_aqi = int(input_data['aqi'].values[0])
+peak_aqi = int(max(preds))
+avg_24 = int(np.mean(preds[:24]))
+diff = avg_24 - cur_aqi
+
+col1, col2, col3, col4 = st.columns(4)
+curr_l, curr_c = get_metric_info(cur_aqi)
+peak_l, peak_c = get_metric_info(peak_aqi)
+
+with col1: st.metric("📍 Current AQI", cur_aqi, delta=curr_l, delta_color=curr_c)
+with col2: st.metric("🔮 Next 24h Avg", avg_24, delta=f"{diff} vs Now", delta_color="normal" if diff < 0 else "inverse")
+with col3: st.metric("⚠️ Peak Predicted", peak_aqi, delta=peak_l, delta_color=peak_c)
+with col4: st.metric("🕒 Horizon", f"{len(preds)} Hours")
+
+st.divider()
+
+# ✅ FORECAST GRAPH (Crucial Section)
+st.subheader("📈 Forecast Analysis (Next 72 Hours)")
 history_df = df.tail(72).copy()
 history_df['Rel'] = range(-len(history_df), 0)
 forecast_df = pd.DataFrame({"Hours": range(1, len(preds)+1), "AQI": preds})
 
 fig = go.Figure()
-
-# 1. Past Data (Blue Area)
-fig.add_trace(go.Scatter(
-    x=history_df['Rel'], 
-    y=history_df['aqi'], 
-    fill='tozeroy', 
-    name='History (DB)', 
-    line=dict(color='#00B4D8', width=3),
-    fillcolor='rgba(0, 180, 216, 0.2)' # Subtle transparency
-))
-
-# 2. Future Forecast (Red Dotted Line)
-fig.add_trace(go.Scatter(
-    x=forecast_df['Hours'], 
-    y=forecast_df['AQI'], 
-    mode='lines+markers', 
-    name='Forecast (AI)', 
-    line=dict(color='#FF4B4B', width=4, dash='dot'),
-    marker=dict(size=6, color='#FF4B4B')
-))
-
-# 3. Vertical "NOW" Line
-fig.add_vline(x=0, line_width=2, line_dash="dash", line_color="white", annotation_text=" NOW", annotation_position="top right")
-
-# 4. Layout Adjustments
-fig.update_layout(
-    template="plotly_dark", 
-    height=450, 
-    margin=dict(l=10, r=10, t=20, b=20),
-    xaxis=dict(
-        title="Timeline (Hours)",
-        gridcolor='rgba(255, 255, 255, 0.1)',
-        zeroline=False
-    ),
-    yaxis=dict(
-        title="AQI Level",
-        gridcolor='rgba(255, 255, 255, 0.1)',
-        # Auto-scale Y axis to fit the data
-        range=[min(min(history_df['aqi']), min(preds)) - 10, max(max(history_df['aqi']), max(preds)) + 20]
-    ),
-    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(0,0,0,0.5)"),
-    hovermode="x unified"
-)
-
+fig.add_trace(go.Scatter(x=history_df['Rel'], y=history_df['aqi'], fill='tozeroy', name='History (DB)', line=dict(color='#00B4D8', width=3)))
+fig.add_trace(go.Scatter(x=forecast_df['Hours'], y=forecast_df['AQI'], mode='lines+markers', name='Forecast (AI)', line=dict(color='#FF4B4B', dash='dot')))
+fig.add_vline(x=0, line_dash="dash", line_color="white", annotation_text="NOW")
+fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=20,b=0), legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99))
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
