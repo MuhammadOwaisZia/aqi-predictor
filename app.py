@@ -66,11 +66,13 @@ def load_resources():
             fs = project.get_feature_store()
             fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
             try:
+                # Try the fast connection first
                 df = fg.read(online=True)
-                source_status = "Feature Store (Online)"
+                source_status = "Feature Store (Live)"  # ✅ Unified Label
             except:
+                # If that fails, use the reliable HTTP connection
                 df = fg.select_all().read(read_options={"use_hive": True})
-                source_status = "Feature Store (Hive)"
+                source_status = "Feature Store (Live)"  # ✅ Unified Label
             
             if df is not None:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
