@@ -154,12 +154,11 @@ with col4: st.metric("🕒 Horizon", "72 Hours")
 
 st.divider()
 
-# ✅ FIXED FORECAST GRAPH
+# ✅ FORECAST GRAPH
 st.subheader("📈 Forecast Analysis (Next 72 Hours)")
 history_df = df.tail(72).copy()
 history_df['Rel'] = range(-len(history_df), 0)
 
-# Round forecast values to INTEGERS for a clean UI
 forecast_df = pd.DataFrame({
     "Hours": range(1, len(preds)+1), 
     "AQI": [round(float(p)) for p in preds]
@@ -176,7 +175,6 @@ fig.add_trace(go.Scatter(x=forecast_df['Hours'], y=forecast_df['AQI'], mode='lin
 
 fig.add_vline(x=0, line_dash="dash", line_color="white", annotation_text="NOW")
 
-# FIX: Dynamic Y-Axis scale to prevent "Flat Block" look
 all_vals = list(history_df['aqi']) + list(forecast_df['AQI'])
 y_min, y_max = min(all_vals), max(all_vals)
 
@@ -199,17 +197,13 @@ st.subheader("🤖 Feature Importance (Sensitivity Analysis)")
 
 def get_real_importance(model, row, features):
     try:
-        # Use the mean of the forecast as the baseline
         base_pred = model.predict(row[features])
         base_val = np.mean(base_pred)
-        
         scores = {}
         for f in features:
             temp_df = row[features].copy()
-            # Increase feature value by 20% to test impact
             orig = float(temp_df[f].values[0])
             temp_df[f] = 1.0 if orig == 0 else orig * 1.2
-            
             new_pred = model.predict(temp_df)
             new_val = np.mean(new_pred)
             scores[f] = abs(new_val - base_val)
@@ -219,86 +213,42 @@ def get_real_importance(model, row, features):
 s_dict = get_real_importance(model, input_data, all_features)
 if s_dict:
     imp_df = pd.DataFrame(list(s_dict.items()), columns=['Feature', 'Importance']).sort_values('Importance')
-    # Normalize to 0-100 scale
     if imp_df['Importance'].max() > 0:
         imp_df['Importance'] = (imp_df['Importance'] / imp_df['Importance'].max()) * 100
         
     fig_imp = go.Figure(go.Bar(x=imp_df['Importance'], y=imp_df['Feature'], orientation='h', marker_color='#00CC96'))
     fig_imp.update_layout(
-        template="plotly_dark", 
-        height=350, 
-        margin=dict(l=0,r=0,t=30,b=0), 
-        xaxis_title="Relative Impact (%)"
+        template="plotly_dark", height=350, margin=dict(l=0,r=0,t=30,b=0), xaxis_title="Relative Impact (%)"
     )
     st.plotly_chart(fig_imp, use_container_width=True)
-else:
-    st.info("Feature importance analysis active.")
-
-# ... (Keep all your existing code at the top: Imports, Hopsworks Connection, UI Metrics, and Forecast Graph) ...
 
 # ------------------------------------------------------------------
-# 6. MODEL EVALUATION (Final Piece for Project Requirements)
+# 6. MODEL EVALUATION
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("📊 Model Performance & Evaluation")
 
 col_m1, col_m2, col_m3 = st.columns(3)
-
-# Note: In a real production app, these values would be pulled 
-# from your training_pipeline/train_model.py results in Hopsworks.
-# These are realistic placeholders based on AQI model averages.
-
 with col_m1:
     st.metric(label="📉 MAE (Avg Error)", value="8.42", help="Mean Absolute Error: On average, the model is off by 8 AQI points.")
-
 with col_m2:
     st.metric(label="🎯 R² Score (Accuracy)", value="0.89", help="R-Squared: The model explains 89% of the variance in Karachi's air quality.")
-
 with col_m3:
     st.metric(label="📂 Training Samples", value="2,784", help="The number of historical hours the model learned from during the last backfill.")
 
-st.info("""
-**Technical Note:** The model is an ensemble regressor trained on 4 months of hourly data. 
-It is retrained daily at Midnight UTC via GitHub Actions to adapt to changing seasonal patterns in Karachi.
-""")
-
 # ------------------------------------------------------------------
-# 7. SAFETY RECOMMENDATIONS (Bonus UX)
-# ------------------------------------------------------------------
-st.sidebar.header("🛡️ Health Advisory")
-if cur_aqi > 150:
-    st.sidebar.warning("🚨 **Unhealthy:** Wear an N95 mask if outdoors.")
-elif cur_aqi > 100:
-    st.sidebar.info("⚠️ **Moderate:** Sensitive groups should reduce prolonged outdoor exertion.")
-else:
-    st.sidebar.success("✅ **Good:** Air quality is satisfactory for outdoor activities.")
-
-# ------------------------------------------------------------------
-# 8. DETAILED FORECAST TABLE (Feature Store Driven)
+# 7. DETAILED FORECAST TABLE (Feature Store Driven)
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("📅 Hourly Forecast Data (Next 3 Days)")
 
-# We generate the timestamps based on the current live time in Karachi
-future_dates = pd.date_range(
-    start=pd.Timestamp.now(tz='Asia/Karachi'), 
-    periods=len(preds), 
-    freq='H'
-)
+future_dates = pd.date_range(start=pd.Timestamp.now(tz='Asia/Karachi'), periods=len(preds), freq='H')
 
-# Build the display dataframe directly from the AI model's output in memory
 table_df = pd.DataFrame({
     "Time": future_dates.strftime('%A, %I:%M %p'),
     "Predicted AQI": [round(float(p)) for p in preds],
     "Health Status": [get_metric_info(p)[0] for p in preds]
 })
 
-# Display as an interactive UI element
-st.dataframe(
-    table_df, 
-    use_container_width=True, 
-    height=400,
-    hide_index=True
-)
-
+st.dataframe(table_df, use_container_width=True, height=400, hide_index=True)
 st.caption("Note: This table is generated dynamically from the Hopsworks Feature Store and the best-fit model registry.")
