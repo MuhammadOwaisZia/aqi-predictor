@@ -10,7 +10,7 @@ import requests
 from dotenv import load_dotenv
 
 # ------------------------------------------------------------------
-# 1. PAGE CONFIGURATION
+# 1. PAGE CONFIGURATION & STYLING
 # ------------------------------------------------------------------
 st.set_page_config(page_title="Karachi AQI Forecast", page_icon="🌫️", layout="wide")
 
@@ -18,6 +18,7 @@ st.markdown("""
 <style>
     .block-container { padding-top: 2rem; }
     [data-testid="stMetricValue"] { font-size: 2.2rem !important; font-weight: 700; }
+    [data-testid="stMetricDelta"] { font-size: 1.1rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -36,15 +37,14 @@ def get_hopsworks_project():
 def download_model_from_cloud(project):
     if project is None: return None, "Offline"
     try:
-        with st.spinner("☁️ Accessing Model Registry..."):
-            mr = project.get_model_registry()
-            models = mr.get_models("aqi_hourly_predictor")
-            best_model = sorted(models, key=lambda x: x.version)[-1]
-            temp_dir = best_model.download()
-            source_path = os.path.join(temp_dir, MODEL_FILE)
-            if os.path.exists(source_path):
-                shutil.copy(source_path, MODEL_FILE)
-            return joblib.load(MODEL_FILE), best_model.version
+        mr = project.get_model_registry()
+        models = mr.get_models("aqi_hourly_predictor")
+        best_model = sorted(models, key=lambda x: x.version)[-1]
+        temp_dir = best_model.download()
+        source_path = os.path.join(temp_dir, MODEL_FILE)
+        if os.path.exists(source_path):
+            shutil.copy(source_path, MODEL_FILE)
+        return joblib.load(MODEL_FILE), best_model.version
     except:
         return None, "Offline"
 
@@ -65,7 +65,6 @@ def load_resources():
         try:
             fs = project.get_feature_store()
             fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
-            
             try:
                 df = fg.read(online=True)
                 source_status = "Feature Store (Online)"
@@ -90,7 +89,7 @@ model, df, source_status = load_resources()
 if df is None:
     source_status = "Hybrid Mode (Live Satellite)"
     dates = pd.date_range(end=pd.Timestamp.now(), periods=72, freq='H')
-    df = pd.DataFrame({'timestamp': dates, 'aqi': [100.0]*72})
+    df = pd.DataFrame({'timestamp': dates, 'aqi': [118.0]*72}) # Realistic baseline
     
     try:
         url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&current=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi"
@@ -126,7 +125,7 @@ else:
     preds = [input_data['aqi'].values[0]] * 24
 
 # ------------------------------------------------------------------
-# 5. DASHBOARD UI
+# 4. DASHBOARD UI
 # ------------------------------------------------------------------
 st.title("🌫️ Karachi AQI Forecast")
 st.caption(f"Status: Live | Source: ✅ {source_status}")
@@ -151,19 +150,19 @@ peak_l, peak_c = get_metric_info(peak_aqi)
 with col1: st.metric("📍 Current AQI", cur_aqi, delta=curr_l, delta_color=curr_c)
 with col2: st.metric("🔮 Next 24h Avg", avg_24, delta=f"{diff} vs Now", delta_color="normal" if diff < 0 else "inverse")
 with col3: st.metric("⚠️ Peak Predicted", peak_aqi, delta=peak_l, delta_color=peak_c)
-with col4: st.metric("🕒 Horizon", f"{len(preds)} Hours")
+with col4: st.metric("🕒 Horizon", "72 Hours")
 
 st.divider()
 
-# ✅ ENHANCED FORECAST GRAPH
+# ✅ ENHANCED FORECAST GRAPH (Correcting visual scaling and rounding)
 st.subheader("📈 Forecast Analysis (Next 72 Hours)")
 history_df = df.tail(72).copy()
 history_df['Rel'] = range(-len(history_df), 0)
 
-# Round forecast for visual clarity
+# Round forecast for visual clarity and precision fix
 forecast_df = pd.DataFrame({
     "Hours": range(1, len(preds)+1), 
-    "AQI": [round(float(p)) for p in preds]
+    "AQI": [round(float(p), 1) for p in preds]
 })
 
 fig = go.Figure()
@@ -187,15 +186,15 @@ fig.add_trace(go.Scatter(
 
 fig.add_vline(x=0, line_dash="dash", line_color="white", annotation_text="NOW")
 
-# Smart Y-Axis Scaling
+# DYNAMIC Y-AXIS SCALE FIX
 all_vals = list(history_df['aqi']) + list(forecast_df['AQI'])
 y_min, y_max = min(all_vals), max(all_vals)
 
 fig.update_layout(
     template="plotly_dark", 
-    height=400, 
+    height=450, 
     margin=dict(l=10, r=10, t=20, b=10),
-    yaxis=dict(range=[y_min - 15, y_max + 15], title="AQI Level"),
+    yaxis=dict(range=[y_min - 10, y_max + 10], title="AQI Level"),
     xaxis=dict(title="Timeline (Hours)"),
     legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
     hovermode="x unified"
@@ -203,18 +202,16 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 6. FEATURE IMPORTANCE (SENSITIVITY)
+# 5. FEATURE IMPORTANCE (SENSITIVITY)
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("🤖 Feature Importance (Real-Time Sensitivity)")
 
 def get_sensitivity_scores(model, row, features):
     try:
-        import numpy as np
         base_df = row[features].copy()
         for col in base_df.columns:
             if base_df[col].dtype == 'object': base_df[col] = 0
-        
         base_pred = model.predict(base_df)
         if isinstance(base_pred, (list, np.ndarray)): base_pred = np.array(base_pred)
         
@@ -240,7 +237,7 @@ if s_dict:
         orientation='h', marker_color='#00CC96'
     ))
     fig_imp.update_layout(
-        template="plotly_dark", height=300, 
+        template="plotly_dark", height=350, 
         margin=dict(l=0,r=0,t=30,b=0), 
         xaxis_title="Relative Impact (%)"
     )
