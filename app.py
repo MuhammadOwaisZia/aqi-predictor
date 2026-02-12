@@ -89,7 +89,7 @@ model, df, source_status = load_resources()
 if df is None:
     source_status = "Hybrid Mode (Live Satellite)"
     dates = pd.date_range(end=pd.Timestamp.now(), periods=72, freq='H')
-    df = pd.DataFrame({'timestamp': dates, 'aqi': [118.0]*72}) # Realistic baseline
+    df = pd.DataFrame({'timestamp': dates, 'aqi': [118.0]*72})
     
     try:
         url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&current=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi"
@@ -154,39 +154,29 @@ with col4: st.metric("🕒 Horizon", "72 Hours")
 
 st.divider()
 
-# ✅ ENHANCED FORECAST GRAPH (Correcting visual scaling and rounding)
+# ✅ FIXED FORECAST GRAPH
 st.subheader("📈 Forecast Analysis (Next 72 Hours)")
 history_df = df.tail(72).copy()
 history_df['Rel'] = range(-len(history_df), 0)
 
-# Round forecast for visual clarity and precision fix
+# Round forecast values to INTEGERS for a clean UI
 forecast_df = pd.DataFrame({
     "Hours": range(1, len(preds)+1), 
-    "AQI": [round(float(p), 1) for p in preds]
+    "AQI": [round(float(p)) for p in preds]
 })
 
 fig = go.Figure()
-
-# History Area
-fig.add_trace(go.Scatter(
-    x=history_df['Rel'], y=history_df['aqi'], 
-    fill='tozeroy', name='History (DB)', 
-    line=dict(color='#00B4D8', width=2),
-    fillcolor='rgba(0, 180, 216, 0.2)'
-))
-
-# Forecast Line
-fig.add_trace(go.Scatter(
-    x=forecast_df['Hours'], y=forecast_df['AQI'], 
-    mode='lines+markers', name='Forecast (AI)', 
-    line=dict(color='#FF4B4B', width=3, dash='dot'),
-    marker=dict(size=6, color='#FF4B4B'),
-    hovertemplate="Hour: +%{x}<br>AQI: %{y}<extra></extra>"
-))
+# History
+fig.add_trace(go.Scatter(x=history_df['Rel'], y=history_df['aqi'], fill='tozeroy', 
+                         name='History (DB)', line=dict(color='#00B4D8', width=2),
+                         fillcolor='rgba(0, 180, 216, 0.2)'))
+# Forecast
+fig.add_trace(go.Scatter(x=forecast_df['Hours'], y=forecast_df['AQI'], mode='lines+markers', 
+                         name='Forecast (AI)', line=dict(color='#FF4B4B', width=3, dash='dot')))
 
 fig.add_vline(x=0, line_dash="dash", line_color="white", annotation_text="NOW")
 
-# DYNAMIC Y-AXIS SCALE FIX
+# FIX: Dynamic Y-Axis scale to prevent "Flat Block" look
 all_vals = list(history_df['aqi']) + list(forecast_df['AQI'])
 y_min, y_max = min(all_vals), max(all_vals)
 
@@ -194,7 +184,7 @@ fig.update_layout(
     template="plotly_dark", 
     height=450, 
     margin=dict(l=10, r=10, t=20, b=10),
-    yaxis=dict(range=[y_min - 10, y_max + 10], title="AQI Level"),
+    yaxis=dict(range=[y_min - 15, y_max + 15], title="AQI Level"),
     xaxis=dict(title="Timeline (Hours)"),
     legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
     hovermode="x unified"
@@ -205,40 +195,41 @@ st.plotly_chart(fig, use_container_width=True)
 # 5. FEATURE IMPORTANCE (SENSITIVITY)
 # ------------------------------------------------------------------
 st.divider()
-st.subheader("🤖 Feature Importance (Real-Time Sensitivity)")
+st.subheader("🤖 Feature Importance (Sensitivity Analysis)")
 
-def get_sensitivity_scores(model, row, features):
+def get_real_importance(model, row, features):
     try:
-        base_df = row[features].copy()
-        for col in base_df.columns:
-            if base_df[col].dtype == 'object': base_df[col] = 0
-        base_pred = model.predict(base_df)
-        if isinstance(base_pred, (list, np.ndarray)): base_pred = np.array(base_pred)
+        # Use the mean of the forecast as the baseline
+        base_pred = model.predict(row[features])
+        base_val = np.mean(base_pred)
         
         scores = {}
-        for col in features:
-            temp_df = base_df.copy()
-            orig = float(temp_df[col].values[0])
-            temp_df[col] = 1.0 if orig == 0 else orig * 1.2
+        for f in features:
+            temp_df = row[features].copy()
+            # Increase feature value by 20% to test impact
+            orig = float(temp_df[f].values[0])
+            temp_df[f] = 1.0 if orig == 0 else orig * 1.2
+            
             new_pred = model.predict(temp_df)
-            if isinstance(new_pred, (list, np.ndarray)): new_pred = np.array(new_pred)
-            scores[col] = float(np.mean(np.abs(new_pred - base_pred)))
+            new_val = np.mean(new_pred)
+            scores[f] = abs(new_val - base_val)
         return scores
     except: return None
 
-s_dict = get_sensitivity_scores(model, input_data, all_features)
+s_dict = get_real_importance(model, input_data, all_features)
 if s_dict:
     imp_df = pd.DataFrame(list(s_dict.items()), columns=['Feature', 'Importance']).sort_values('Importance')
+    # Normalize to 0-100 scale
     if imp_df['Importance'].max() > 0:
         imp_df['Importance'] = (imp_df['Importance'] / imp_df['Importance'].max()) * 100
-    
-    fig_imp = go.Figure(go.Bar(
-        x=imp_df['Importance'], y=imp_df['Feature'], 
-        orientation='h', marker_color='#00CC96'
-    ))
+        
+    fig_imp = go.Figure(go.Bar(x=imp_df['Importance'], y=imp_df['Feature'], orientation='h', marker_color='#00CC96'))
     fig_imp.update_layout(
-        template="plotly_dark", height=350, 
+        template="plotly_dark", 
+        height=350, 
         margin=dict(l=0,r=0,t=30,b=0), 
         xaxis_title="Relative Impact (%)"
     )
     st.plotly_chart(fig_imp, use_container_width=True)
+else:
+    st.info("Feature importance analysis active.")
