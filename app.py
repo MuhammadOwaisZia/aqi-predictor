@@ -78,7 +78,7 @@ def load_resources():
             fs = project.get_feature_store()
             
             st.write("✅ Found Feature Store! Trying to find Feature Group 'aqi_features_hourly'...")
-            fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
+            fg = fs.get_feature_group(name="aqi_features_hourly", version=2)
             
             try:
                 st.write("✅ Found Feature Group! Trying to read data...")
