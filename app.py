@@ -8,11 +8,18 @@ import shutil
 import numpy as np
 import requests
 from dotenv import load_dotenv
+from PIL import Image  # <--- Added PIL Import
 
 # ------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
 # ------------------------------------------------------------------
-st.set_page_config(page_title="Karachi AQI Forecast", page_icon="🌫️", layout="wide")
+# Try to load the custom image, fallback to emoji if missing
+try:
+    icon = Image.open("favicon.png")
+except:
+    icon = "🌫️"
+
+st.set_page_config(page_title="Karachi AQI Forecast", page_icon=icon, layout="wide")
 
 st.markdown("""
 <style>
