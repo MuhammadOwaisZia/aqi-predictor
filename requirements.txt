@@ -10,4 +10,5 @@ python-dotenv
 numpy
 joblib
 plotly
-pyarrow  
+pyarrow
+Pillow

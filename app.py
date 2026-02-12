@@ -29,15 +29,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------
-# 2. HOPSWORKS CONNECTION
+# 2. HOPSWORKS CONNECTION (DEBUG MODE ENABLED)
 # ------------------------------------------------------------------
 MODEL_FILE = "best_aqi_model.pkl"
 
 def get_hopsworks_project():
     load_dotenv()
     try:
+        # projected_api_key = os.getenv("HOPSWORKS_API_KEY")
+        # st.write(f"Debug Key Check: {projected_api_key[:5]}...") # OPTIONAL: Uncomment to check if key loads
         return hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
-    except:
+    except Exception as e:
+        st.error(f"❌ Connection Error: {e}") # <--- This will show the real error on screen
         return None
 
 def download_model_from_cloud(project):
@@ -271,5 +274,4 @@ table_df = pd.DataFrame({
 
 st.dataframe(table_df, use_container_width=True, height=400, hide_index=True)
 st.caption("Note: This table is generated dynamically from the Hopsworks Feature Store and the best-fit model registry.")
-
 # Project by Muhammad Owais Zia - Feb 2026
