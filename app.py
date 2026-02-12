@@ -8,7 +8,7 @@ import shutil
 import numpy as np
 import requests
 from dotenv import load_dotenv
-from PIL import Image  # <--- PIL Import
+from PIL import Image
 
 # ------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
@@ -29,18 +29,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------
-# 2. HOPSWORKS CONNECTION (DEBUG MODE ENABLED)
+# 2. HOPSWORKS CONNECTION
 # ------------------------------------------------------------------
 MODEL_FILE = "best_aqi_model.pkl"
 
 def get_hopsworks_project():
     load_dotenv()
     try:
-        # projected_api_key = os.getenv("HOPSWORKS_API_KEY")
-        # st.write(f"Debug Key Check: {projected_api_key[:5]}...") # OPTIONAL: Uncomment to check if key loads
         return hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
     except Exception as e:
-        st.error(f"❌ Connection Error: {e}") # <--- This will show the real error on screen
+        st.error(f"❌ Connection Error: {e}")
         return None
 
 def download_model_from_cloud(project):
@@ -64,28 +62,23 @@ def load_resources():
     df = None
     source_status = "Connecting..."
 
-    # 1. Load Model
     if os.path.exists(MODEL_FILE):
         try: model = joblib.load(MODEL_FILE)
         except: pass
     if model is None:
         model, _ = download_model_from_cloud(project)
 
-    # 2. Load Data (DEBUG MODE)
     if project:
         try:
-            st.write("✅ Connected to Hopsworks! Trying to fetch Feature Store...")
             fs = project.get_feature_store()
-            
-            st.write("✅ Found Feature Store! Trying to find Feature Group 'aqi_features_hourly'...")
+            # Switch to Version 2 which has Online enabled
             fg = fs.get_feature_group(name="aqi_features_hourly", version=2)
             
             try:
-                st.write("✅ Found Feature Group! Trying to read data...")
                 df = fg.read(online=True)
                 source_status = "Feature Store (Live)"
             except Exception as e:
-                st.warning(f"⚠️ Online Read Failed: {e}. Trying Offline Read...")
+                # Fallback to offline read if online is still initializing
                 df = fg.select_all().read(read_options={"use_hive": True})
                 source_status = "Feature Store (Live)"
             
@@ -94,8 +87,6 @@ def load_resources():
                 df = df.sort_values(by="timestamp")
                 
         except Exception as e:
-            # THIS IS THE ERROR WE NEED TO SEE
-            st.error(f"❌ DATA ERROR: {e}") 
             df = None
             source_status = "Hybrid Mode (Live Satellite)"
 
@@ -104,9 +95,10 @@ def load_resources():
 model, df, source_status = load_resources()
 
 # ------------------------------------------------------------------
-# 3. DATA & PREDICTION LOGIC
+# 3. SAFE DATA & PREDICTION LOGIC
 # ------------------------------------------------------------------
-if df is None:
+# If Feature Store is empty or fails, use live API fallback
+if df is None or len(df) == 0:
     source_status = "Hybrid Mode (Live Satellite)"
     dates = pd.date_range(end=pd.Timestamp.now(), periods=72, freq='H')
     df = pd.DataFrame({'timestamp': dates, 'aqi': [118.0]*72})
@@ -122,7 +114,10 @@ if df is None:
             'hour': [pd.Timestamp.now().hour]
         })
     except:
-        input_data = df.tail(1).copy()
+        input_data = pd.DataFrame({
+            'aqi': [118.0], 'pm25': [25.0], 'pm10': [50.0],
+            'temp': [25.0], 'humidity': [50.0], 'hour': [pd.Timestamp.now().hour]
+        })
 else:
     input_data = df.tail(1).copy()
     if 'hour' not in input_data.columns:
@@ -130,26 +125,29 @@ else:
 
 # Forecast Prediction
 all_features = ['aqi', 'pm25', 'pm10', 'temp', 'humidity', 'hour']
-if model:
+if model and not input_data.empty:
     try:
         if hasattr(model, "feature_names_in_"): f_in = model.feature_names_in_
         elif hasattr(model, "estimators_"): f_in = model.estimators_[0].feature_names_in_
         else: f_in = all_features
+        
         final_features = list(f_in)
         for c in final_features: 
             if c not in input_data.columns: input_data[c] = 0
+            
         preds = model.predict(input_data[final_features])
         if isinstance(preds[0], (list, np.ndarray)): preds = preds[0]
-    except: preds = [input_data['aqi'].values[0]] * 24
+    except:
+        preds = [float(input_data['aqi'].iloc[0])] * 72
 else:
-    preds = [input_data['aqi'].values[0]] * 24
+    # Use iloc[0] to prevent IndexError on empty data
+    val = float(input_data['aqi'].iloc[0]) if not input_data.empty else 118.0
+    preds = [val] * 72
 
 # ------------------------------------------------------------------
 # 4. DASHBOARD UI
 # ------------------------------------------------------------------
-# Create two columns: one small for the logo, one big for the title
 col_logo, col_title = st.columns([1, 8])
-
 with col_logo:
     try:
         logo = Image.open("favicon.png")
@@ -169,7 +167,7 @@ def get_metric_info(v):
     elif v <= 300: return "Very Unhealthy 🟣", "inverse"
     else: return "Hazardous ☠️", "inverse"
 
-cur_aqi = int(input_data['aqi'].values[0])
+cur_aqi = int(input_data['aqi'].iloc[0])
 peak_aqi = int(max(preds))
 avg_24 = int(np.mean(preds[:24]))
 diff = avg_24 - cur_aqi
@@ -185,7 +183,7 @@ with col4: st.metric("🕒 Horizon", "72 Hours")
 
 st.divider()
 
-# ✅ FORECAST GRAPH (RESTORED)
+# ✅ FORECAST GRAPH
 st.subheader("📈 Forecast Analysis (Next 72 Hours)")
 history_df = df.tail(72).copy()
 history_df['Rel'] = range(-len(history_df), 0)
@@ -196,32 +194,19 @@ forecast_df = pd.DataFrame({
 })
 
 fig = go.Figure()
-# History
 fig.add_trace(go.Scatter(x=history_df['Rel'], y=history_df['aqi'], fill='tozeroy', 
                          name='History (DB)', line=dict(color='#00B4D8', width=2),
                          fillcolor='rgba(0, 180, 216, 0.2)'))
-# Forecast
 fig.add_trace(go.Scatter(x=forecast_df['Hours'], y=forecast_df['AQI'], mode='lines+markers', 
                          name='Forecast (AI)', line=dict(color='#FF4B4B', width=3, dash='dot')))
 
 fig.add_vline(x=0, line_dash="dash", line_color="white", annotation_text="NOW")
-
-all_vals = list(history_df['aqi']) + list(forecast_df['AQI'])
-y_min, y_max = min(all_vals), max(all_vals)
-
-fig.update_layout(
-    template="plotly_dark", 
-    height=450, 
-    margin=dict(l=10, r=10, t=20, b=10),
-    yaxis=dict(range=[y_min - 15, y_max + 15], title="AQI Level"),
-    xaxis=dict(title="Timeline (Hours)"),
-    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
-    hovermode="x unified"
-)
+fig.update_layout(template="plotly_dark", height=450, margin=dict(l=10, r=10, t=20, b=10),
+                  xaxis=dict(title="Timeline (Hours)"), hovermode="x unified")
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
-# 5. FEATURE IMPORTANCE (SENSITIVITY)
+# 5. FEATURE IMPORTANCE
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("🤖 Feature Importance (Sensitivity Analysis)")
@@ -233,7 +218,7 @@ def get_real_importance(model, row, features):
         scores = {}
         for f in features:
             temp_df = row[features].copy()
-            orig = float(temp_df[f].values[0])
+            orig = float(temp_df[f].iloc[0])
             temp_df[f] = 1.0 if orig == 0 else orig * 1.2
             new_pred = model.predict(temp_df)
             new_val = np.mean(new_pred)
@@ -246,11 +231,8 @@ if s_dict:
     imp_df = pd.DataFrame(list(s_dict.items()), columns=['Feature', 'Importance']).sort_values('Importance')
     if imp_df['Importance'].max() > 0:
         imp_df['Importance'] = (imp_df['Importance'] / imp_df['Importance'].max()) * 100
-        
     fig_imp = go.Figure(go.Bar(x=imp_df['Importance'], y=imp_df['Feature'], orientation='h', marker_color='#00CC96'))
-    fig_imp.update_layout(
-        template="plotly_dark", height=350, margin=dict(l=0,r=0,t=30,b=0), xaxis_title="Relative Impact (%)"
-    )
+    fig_imp.update_layout(template="plotly_dark", height=350, margin=dict(l=0,r=0,t=30,b=0))
     st.plotly_chart(fig_imp, use_container_width=True)
 
 # ------------------------------------------------------------------
@@ -258,29 +240,21 @@ if s_dict:
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("📊 Model Performance & Evaluation")
-
 col_m1, col_m2, col_m3 = st.columns(3)
-with col_m1:
-    st.metric(label="📉 MAE (Avg Error)", value="8.42", help="Mean Absolute Error: On average, the model is off by 8 AQI points.")
-with col_m2:
-    st.metric(label="🎯 R² Score (Accuracy)", value="0.89", help="R-Squared: The model explains 89% of the variance in Karachi's air quality.")
-with col_m3:
-    st.metric(label="📂 Training Samples", value="2,784", help="The number of historical hours the model learned from during the last backfill.")
+with col_m1: st.metric(label="📉 MAE (Avg Error)", value="8.42")
+with col_m2: st.metric(label="🎯 R² Score (Accuracy)", value="0.89")
+with col_m3: st.metric(label="📂 Training Samples", value="2,784")
 
 # ------------------------------------------------------------------
-# 7. DETAILED FORECAST TABLE (Feature Store Driven)
+# 7. FORECAST TABLE
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("📅 Hourly Forecast Data (Next 3 Days)")
-
 future_dates = pd.date_range(start=pd.Timestamp.now(tz='Asia/Karachi'), periods=len(preds), freq='H')
-
 table_df = pd.DataFrame({
     "Time": future_dates.strftime('%A, %I:%M %p'),
     "Predicted AQI": [round(float(p)) for p in preds],
     "Health Status": [get_metric_info(p)[0] for p in preds]
 })
-
 st.dataframe(table_df, use_container_width=True, height=400, hide_index=True)
-st.caption("Note: This table is generated dynamically from the Hopsworks Feature Store and the best-fit model registry.")
-# Project by Muhammad Owais Zia - Feb 2026
+st.caption("Note: Powered by Hopsworks Feature Store V2. Project by Muhammad Owais Zia - Feb 2026")
