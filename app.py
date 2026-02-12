@@ -8,12 +8,11 @@ import shutil
 import numpy as np
 import requests
 from dotenv import load_dotenv
-from PIL import Image  # <--- Added PIL Import
+from PIL import Image  # <--- PIL Import
 
 # ------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
 # ------------------------------------------------------------------
-# Try to load the custom image, fallback to emoji if missing
 try:
     icon = Image.open("favicon.png")
 except:
@@ -136,8 +135,19 @@ else:
 # ------------------------------------------------------------------
 # 4. DASHBOARD UI
 # ------------------------------------------------------------------
-st.title("🌫️ Karachi AQI Forecast")
-st.caption(f"Status: Live | Source: ✅ {source_status}")
+# Create two columns: one small for the logo, one big for the title
+col_logo, col_title = st.columns([1, 8])
+
+with col_logo:
+    try:
+        logo = Image.open("favicon.png")
+        st.image(logo, width=100)
+    except:
+        st.write("🌫️") 
+
+with col_title:
+    st.title("Karachi AQI Forecast")
+    st.caption(f"Status: Live | Source: ✅ {source_status}")
 
 def get_metric_info(v):
     if v <= 50: return "Good 🌱", "normal"
@@ -163,7 +173,7 @@ with col4: st.metric("🕒 Horizon", "72 Hours")
 
 st.divider()
 
-# ✅ FORECAST GRAPH
+# ✅ FORECAST GRAPH (RESTORED)
 st.subheader("📈 Forecast Analysis (Next 72 Hours)")
 history_df = df.tail(72).copy()
 history_df['Rel'] = range(-len(history_df), 0)
