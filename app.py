@@ -70,7 +70,7 @@ def load_resources():
                 source_status = "Feature Store (Online)"
             except:
                 df = fg.select_all().read(read_options={"use_hive": True})
-                source_status = "Feature Store (Hive)"
+                source_status = "Feature Store (Online)"
             
             if df is not None:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
