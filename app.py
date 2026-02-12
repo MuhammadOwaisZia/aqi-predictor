@@ -64,29 +64,38 @@ def load_resources():
     df = None
     source_status = "Connecting..."
 
+    # 1. Load Model
     if os.path.exists(MODEL_FILE):
         try: model = joblib.load(MODEL_FILE)
         except: pass
     if model is None:
         model, _ = download_model_from_cloud(project)
 
+    # 2. Load Data (DEBUG MODE)
     if project:
         try:
+            st.write("✅ Connected to Hopsworks! Trying to fetch Feature Store...")
             fs = project.get_feature_store()
+            
+            st.write("✅ Found Feature Store! Trying to find Feature Group 'aqi_features_hourly'...")
             fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
+            
             try:
-                # Try the fast connection first
+                st.write("✅ Found Feature Group! Trying to read data...")
                 df = fg.read(online=True)
-                source_status = "Feature Store (Live)"  # ✅ Unified Label
-            except:
-                # If that fails, use the reliable HTTP connection
+                source_status = "Feature Store (Live)"
+            except Exception as e:
+                st.warning(f"⚠️ Online Read Failed: {e}. Trying Offline Read...")
                 df = fg.select_all().read(read_options={"use_hive": True})
-                source_status = "Feature Store (Live)"  # ✅ Unified Label
+                source_status = "Feature Store (Live)"
             
             if df is not None:
                 df['timestamp'] = pd.to_datetime(df['timestamp'])
                 df = df.sort_values(by="timestamp")
-        except:
+                
+        except Exception as e:
+            # THIS IS THE ERROR WE NEED TO SEE
+            st.error(f"❌ DATA ERROR: {e}") 
             df = None
             source_status = "Hybrid Mode (Live Satellite)"
 
