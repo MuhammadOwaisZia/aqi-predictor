@@ -1,5 +1,6 @@
 streamlit
-hopsworks
+hopsworks[python]
+confluent-kafka
 pandas
 scikit-learn
 shap
@@ -8,4 +9,5 @@ seaborn
 python-dotenv
 numpy
 joblib
-plotly     
+plotly
+pyarrow  
