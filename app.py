@@ -66,7 +66,6 @@ def load_resources():
             fs = project.get_feature_store()
             fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
             
-            # ✅ Try Online Store first (Allowed by Firewall)
             try:
                 df = fg.read(online=True)
                 source_status = "Feature Store (Online)"
@@ -91,7 +90,7 @@ model, df, source_status = load_resources()
 if df is None:
     source_status = "Hybrid Mode (Live Satellite)"
     dates = pd.date_range(end=pd.Timestamp.now(), periods=72, freq='H')
-    df = pd.DataFrame({'timestamp': dates, 'aqi': [100]*72})
+    df = pd.DataFrame({'timestamp': dates, 'aqi': [100.0]*72})
     
     try:
         url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&current=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi"
@@ -99,12 +98,12 @@ if df is None:
         aqi_r = requests.get(url).json()['current']
         w_r = requests.get(w_url).json()['current']
         input_data = pd.DataFrame({
-            'aqi': [aqi_r['us_aqi']], 'pm25': [aqi_r['pm2_5']], 'pm10': [aqi_r['pm10']],
-            'temp': [w_r['temperature_2m']], 'humidity': [w_r['relativehumidity_2m']],
+            'aqi': [float(aqi_r['us_aqi'])], 'pm25': [float(aqi_r['pm2_5'])], 'pm10': [float(aqi_r['pm10'])],
+            'temp': [float(w_r['temperature_2m'])], 'humidity': [float(w_r['relativehumidity_2m'])],
             'hour': [pd.Timestamp.now().hour]
         })
     except:
-        input_data = df.tail(1)
+        input_data = df.tail(1).copy()
 else:
     input_data = df.tail(1).copy()
     if 'hour' not in input_data.columns:
@@ -112,7 +111,6 @@ else:
 
 # Forecast Prediction
 all_features = ['aqi', 'pm25', 'pm10', 'temp', 'humidity', 'hour']
-final_features = all_features
 if model:
     try:
         if hasattr(model, "feature_names_in_"): f_in = model.feature_names_in_
@@ -157,17 +155,51 @@ with col4: st.metric("🕒 Horizon", f"{len(preds)} Hours")
 
 st.divider()
 
-# ✅ FORECAST GRAPH (Crucial Section)
+# ✅ ENHANCED FORECAST GRAPH
 st.subheader("📈 Forecast Analysis (Next 72 Hours)")
 history_df = df.tail(72).copy()
 history_df['Rel'] = range(-len(history_df), 0)
-forecast_df = pd.DataFrame({"Hours": range(1, len(preds)+1), "AQI": preds})
+
+# Round forecast for visual clarity
+forecast_df = pd.DataFrame({
+    "Hours": range(1, len(preds)+1), 
+    "AQI": [round(float(p)) for p in preds]
+})
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=history_df['Rel'], y=history_df['aqi'], fill='tozeroy', name='History (DB)', line=dict(color='#00B4D8', width=3)))
-fig.add_trace(go.Scatter(x=forecast_df['Hours'], y=forecast_df['AQI'], mode='lines+markers', name='Forecast (AI)', line=dict(color='#FF4B4B', dash='dot')))
+
+# History Area
+fig.add_trace(go.Scatter(
+    x=history_df['Rel'], y=history_df['aqi'], 
+    fill='tozeroy', name='History (DB)', 
+    line=dict(color='#00B4D8', width=2),
+    fillcolor='rgba(0, 180, 216, 0.2)'
+))
+
+# Forecast Line
+fig.add_trace(go.Scatter(
+    x=forecast_df['Hours'], y=forecast_df['AQI'], 
+    mode='lines+markers', name='Forecast (AI)', 
+    line=dict(color='#FF4B4B', width=3, dash='dot'),
+    marker=dict(size=6, color='#FF4B4B'),
+    hovertemplate="Hour: +%{x}<br>AQI: %{y}<extra></extra>"
+))
+
 fig.add_vline(x=0, line_dash="dash", line_color="white", annotation_text="NOW")
-fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=20,b=0), legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99))
+
+# Smart Y-Axis Scaling
+all_vals = list(history_df['aqi']) + list(forecast_df['AQI'])
+y_min, y_max = min(all_vals), max(all_vals)
+
+fig.update_layout(
+    template="plotly_dark", 
+    height=400, 
+    margin=dict(l=10, r=10, t=20, b=10),
+    yaxis=dict(range=[y_min - 15, y_max + 15], title="AQI Level"),
+    xaxis=dict(title="Timeline (Hours)"),
+    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+    hovermode="x unified"
+)
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------------------------------
@@ -178,28 +210,38 @@ st.subheader("🤖 Feature Importance (Real-Time Sensitivity)")
 
 def get_sensitivity_scores(model, row, features):
     try:
+        import numpy as np
         base_df = row[features].copy()
         for col in base_df.columns:
             if base_df[col].dtype == 'object': base_df[col] = 0
+        
         base_pred = model.predict(base_df)
-        if isinstance(base_pred, list): base_pred = np.array(base_pred)
+        if isinstance(base_pred, (list, np.ndarray)): base_pred = np.array(base_pred)
         
         scores = {}
         for col in features:
             temp_df = base_df.copy()
-            orig = temp_df[col].values[0]
+            orig = float(temp_df[col].values[0])
             temp_df[col] = 1.0 if orig == 0 else orig * 1.2
             new_pred = model.predict(temp_df)
-            if isinstance(new_pred, list): new_pred = np.array(new_pred)
-            scores[col] = np.mean(np.abs(new_pred - base_pred))
+            if isinstance(new_pred, (list, np.ndarray)): new_pred = np.array(new_pred)
+            scores[col] = float(np.mean(np.abs(new_pred - base_pred)))
         return scores
     except: return None
 
-s_dict = get_sensitivity_scores(model, input_data, final_features)
+s_dict = get_sensitivity_scores(model, input_data, all_features)
 if s_dict:
     imp_df = pd.DataFrame(list(s_dict.items()), columns=['Feature', 'Importance']).sort_values('Importance')
     if imp_df['Importance'].max() > 0:
         imp_df['Importance'] = (imp_df['Importance'] / imp_df['Importance'].max()) * 100
-    fig_imp = go.Figure(go.Bar(x=imp_df['Importance'], y=imp_df['Feature'], orientation='h', marker_color='#00CC96'))
-    fig_imp.update_layout(template="plotly_dark", height=300, margin=dict(l=0,r=0,t=30,b=0), xaxis_title="Relative Impact (%)")
+    
+    fig_imp = go.Figure(go.Bar(
+        x=imp_df['Importance'], y=imp_df['Feature'], 
+        orientation='h', marker_color='#00CC96'
+    ))
+    fig_imp.update_layout(
+        template="plotly_dark", height=300, 
+        margin=dict(l=0,r=0,t=30,b=0), 
+        xaxis_title="Relative Impact (%)"
+    )
     st.plotly_chart(fig_imp, use_container_width=True)
