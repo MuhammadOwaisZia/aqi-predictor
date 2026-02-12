@@ -274,27 +274,26 @@ else:
     st.sidebar.success("✅ **Good:** Air quality is satisfactory for outdoor activities.")
 
 # ------------------------------------------------------------------
-# 8. DETAILED FORECAST TABLE
+# 8. DETAILED FORECAST TABLE (Feature Store Driven)
 # ------------------------------------------------------------------
 st.divider()
 st.subheader("📅 Hourly Forecast Data (Next 3 Days)")
 
-# Create timestamps for the next 72 hours
-# We use Karachi time to match your project location
+# We generate the timestamps based on the current live time in Karachi
 future_dates = pd.date_range(
     start=pd.Timestamp.now(tz='Asia/Karachi'), 
     periods=len(preds), 
     freq='H'
 )
 
-# Create the display table
+# Build the display dataframe directly from the AI model's output in memory
 table_df = pd.DataFrame({
     "Time": future_dates.strftime('%A, %I:%M %p'),
     "Predicted AQI": [round(float(p)) for p in preds],
     "Health Status": [get_metric_info(p)[0] for p in preds]
 })
 
-# Display as a clean, searchable dataframe
+# Display as an interactive UI element
 st.dataframe(
     table_df, 
     use_container_width=True, 
@@ -302,11 +301,4 @@ st.dataframe(
     hide_index=True
 )
 
-# Optional: Add a CSV download button for project documentation
-csv = table_df.to_csv(index=False).encode('utf-8')
-st.download_button(
-    label="📥 Download Forecast CSV",
-    data=csv,
-    file_name='karachi_aqi_72h_forecast.csv',
-    mime='text/csv',
-)
+st.caption("Note: This table is generated dynamically from the Hopsworks Feature Store and the best-fit model registry.")
