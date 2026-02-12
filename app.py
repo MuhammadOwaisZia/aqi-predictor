@@ -166,46 +166,66 @@ if 'Hours_Relative' not in history_df.columns:
     history_df['Hours_Relative'] = range(-len(history_df), 0)
 
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
 # 5. DASHBOARD UI
 # ------------------------------------------------------------------
 st.title("🌫️ Karachi AQI Forecast")
+st.caption(f"Status: Live | Source: {source_status}")
 
-# Status Label logic
-if "Online" in source_status or "Hive" in source_status:
-    st.caption(f"Status: Live | Source: ✅ {source_status}")
-else:
-    st.caption(f"Status: Live | Source: ⚠️ {source_status}")
+# --- Helper to get AQI Label & Color for Metrics ---
+def get_metric_info(aqi_value):
+    if aqi_value <= 50: return "Good 🌱", "normal"
+    elif aqi_value <= 100: return "Moderate 😐", "off" 
+    elif aqi_value <= 150: return "Unhealthy (Sens.) 😷", "inverse"
+    elif aqi_value <= 200: return "Unhealthy 🔴", "inverse"
+    elif aqi_value <= 300: return "Very Unhealthy 🟣", "inverse"
+    else: return "Hazardous ☠️", "inverse"
 
+# Calculate display values
 current_aqi = int(input_data['aqi'].values[0]) if 'aqi' in input_data else 0
 max_pred = int(max(preds))
 avg_next_24 = int(sum(preds[:24]) / 24)
+diff_vs_now = avg_next_24 - current_aqi
 
-if current_aqi >= 300: st.error("🚨 HAZARDOUS")
-elif current_aqi >= 200: st.error("⚠️ VERY UNHEALTHY")
-elif current_aqi >= 150: st.warning("😷 UNHEALTHY")
+# Get labels and colors
+curr_label, curr_color = get_metric_info(current_aqi)
+peak_label, peak_color = get_metric_info(max_pred)
 
+# Create 4 columns for the metrics
 col1, col2, col3, col4 = st.columns(4)
-with col1: st.metric("📍 Current AQI", current_aqi)
-with col2: st.metric("🔮 Next 24h Avg", avg_next_24, delta=f"{avg_next_24-current_aqi}")
-with col3: st.metric("⚠️ Peak", max_pred)
-with col4: st.metric("🕒 Horizon", f"{num_preds} Hrs")
+
+with col1:
+    st.metric(
+        label="📍 Current AQI", 
+        value=current_aqi, 
+        delta=curr_label, 
+        delta_color=curr_color
+    )
+
+with col2:
+    st.metric(
+        label="🔮 Next 24h Avg", 
+        value=avg_next_24, 
+        delta=f"{diff_vs_now} vs Now", 
+        delta_color="normal" if diff_vs_now < 0 else "inverse"
+    )
+
+with col3:
+    st.metric(
+        label="⚠️ Peak Predicted", 
+        value=max_pred, 
+        delta=peak_label, 
+        delta_color=peak_color
+    )
+
+with col4:
+    st.metric(
+        label="🕒 Horizon", 
+        value=f"{num_preds} Hours"
+    )
 
 st.divider()
-st.subheader("📈 Forecast Analysis")
 
-fig = go.Figure()
-# History
-fig.add_trace(go.Scatter(x=history_df['Hours_Relative'], y=history_df['aqi'],
-                         mode='lines', name='History', line=dict(color='#00B4D8', width=3), fill='tozeroy'))
-# Forecast
-fig.add_trace(go.Scatter(x=forecast_df['Hours Ahead'], y=forecast_df['Predicted AQI'],
-                         mode='lines+markers', name='Forecast', line=dict(color='#FF4B4B', width=3, dash='dot')))
-
-fig.add_vline(x=0, line_dash="dash", line_color="white", annotation_text="NOW")
-fig.update_layout(xaxis_title="Hours", yaxis_title="AQI", template="plotly_dark", height=450,
-                  margin=dict(l=0,r=0,t=30,b=0), legend=dict(y=1, x=1))
-
-st.plotly_chart(fig, use_container_width=True)
 # ------------------------------------------------------------------
 # 6. FEATURE IMPORTANCE (MULTI-OUTPUT COMPATIBLE)
 # ------------------------------------------------------------------
