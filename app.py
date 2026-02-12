@@ -271,3 +271,5 @@ table_df = pd.DataFrame({
 
 st.dataframe(table_df, use_container_width=True, height=400, hide_index=True)
 st.caption("Note: This table is generated dynamically from the Hopsworks Feature Store and the best-fit model registry.")
+
+# Project by Muhammad Owais Zia - Feb 2026
