@@ -11,7 +11,10 @@ load_dotenv()
 try:
     project = hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
     fs = project.get_feature_store()
-    fg = fs.get_feature_group(name="aqi_features_hourly", version=1)
+    
+    # ✅ FIXED: Pointing to Version 2 (Online Store)
+    fg = fs.get_feature_group(name="aqi_features_hourly", version=2)
+    
 except Exception as e:
     print(f"❌ Connection Failed: {e}")
     exit()
@@ -19,6 +22,7 @@ except Exception as e:
 # 2. Fetch Data
 print("🌍 Fetching latest data from Satellite...")
 try:
+    # Fetching 1 past day and 3 future days of data
     aqi_url = "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&hourly=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi&past_days=1&forecast_days=3"
     weather_url = "https://api.open-meteo.com/v1/forecast?latitude=24.8607&longitude=67.0011&hourly=temperature_2m,relativehumidity_2m&timezone=Asia%2FKarachi&past_days=1&forecast_days=3"
 
@@ -42,32 +46,32 @@ df_weather = pd.DataFrame({
     'humidity': weather_data['hourly']['relativehumidity_2m']
 })
 
-# 4. Merge & Fix Types (Strict Schema)
+# 4. Merge & Fix Types
+# We merge on timestamp to align weather with AQI
 df = pd.merge(df_aqi, df_weather, on='timestamp')
 df['city'] = 'Karachi'
 
-# Convert to correct types for Hopsworks
-df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6 
+# Convert to Hopsworks compatible types (BigInt for timestamp)
+df['timestamp'] = pd.to_datetime(df['timestamp']).astype(np.int64) // 10**6 
 df['aqi'] = df['aqi'].fillna(0).astype('int64')
 df['humidity'] = df['humidity'].fillna(0).astype('int64')
 df['pm25'] = df['pm25'].astype(float)
 df['pm10'] = df['pm10'].astype(float)
 df['temp'] = df['temp'].astype(float)
 
-# 5. Upload with AUTO-RETRY Logic
+# 5. Upload with Retry Logic
 MAX_RETRIES = 3
-print(f"🚀 Preparing to upload {len(df)} rows...")
+print(f"🚀 Preparing to upload {len(df)} rows to Version 2...")
 
 for attempt in range(MAX_RETRIES):
     try:
         print(f"🔄 Attempt {attempt + 1}/{MAX_RETRIES}...")
         
-        # We assume the previous partial upload might have worked, 
-        # so we force it through.
-        fg.insert(df, write_options={"wait_for_job": False})
+        # ✅ FIXED: Wait for job to ensure success in logs
+        fg.insert(df, write_options={"wait_for_job": True})
         
-        print("✅ SUCCESS! Data sent to Hopsworks.")
-        break # Exit loop if successful
+        print("✅ SUCCESS! Data sent to Hopsworks Online Store.")
+        break 
         
     except Exception as e:
         print(f"⚠️ Connection Error on Attempt {attempt + 1}: {e}")
@@ -75,4 +79,4 @@ for attempt in range(MAX_RETRIES):
             print("⏳ Waiting 10 seconds before retrying...")
             time.sleep(10)
         else:
-            print("❌ All attempts failed. Please check your internet connection.")
+            print("❌ All attempts failed. Check Hopsworks API Key.")
