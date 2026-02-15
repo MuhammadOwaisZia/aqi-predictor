@@ -27,26 +27,28 @@ def run():
     print("⏳ Fetching live AQI data...")
     aqi_data = fetch_with_retry("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=24.8607&longitude=67.0011&current=us_aqi,pm10,pm2_5&timezone=Asia%2FKarachi")
     
-    # B. Parse Data
+    # B. Parse Data (FIXED SCHEMA MATCHING)
     timestamp = datetime.now()
     data = {
         'timestamp': [int(timestamp.timestamp() * 1000)], # Hopsworks expects millis
+        'city': ['Karachi'],        # ✅ ADDED: Missing 'city' column
         'aqi': [aqi_data['current']['us_aqi']],
         'pm25': [aqi_data['current']['pm2_5']],
         'pm10': [aqi_data['current']['pm10']],
         'temp': [weather_data['current']['temperature_2m']],
-        'humidity': [weather_data['current']['relativehumidity_2m']],
-        'hour': [timestamp.hour]
+        'humidity': [weather_data['current']['relativehumidity_2m']]
+        # ❌ REMOVED: 'hour' (Hopsworks doesn't have this column)
     }
+    
     df = pd.DataFrame(data)
-    print(f"✅ Data processed: AQI={data['aqi'][0]}")
+    print(f"✅ Data processed for {data['city'][0]}: AQI={data['aqi'][0]}")
 
     # C. Save to Hopsworks
     print("🚀 Connecting to Hopsworks...")
     project = hopsworks.login()
     fs = project.get_feature_store()
     
-    # Get the Feature Group (Ensure version matches your backfill)
+    # Get the Feature Group
     fg = fs.get_feature_group(name="aqi_features_hourly", version=2)
     
     print("💾 Inserting data...")
