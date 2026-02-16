@@ -30,8 +30,6 @@ The system follows a modern **Serverless MLOps** architecture:
 3.  **Training Pipeline:** A **Random Forest Regressor** is trained daily on new data to prevent model drift.
 4.  **Inference Pipeline:** The Streamlit dashboard fetches the latest model and features to generate real-time forecasts.
 
-
-
 ---
 
 ## 🛠️ Technology Stack
@@ -63,6 +61,7 @@ The system follows a modern **Serverless MLOps** architecture:
 ### 4. Advanced Analytics & Explainability 🔍
 * **EDA:** Conducted comprehensive Exploratory Data Analysis to identify correlations (e.g., Wind Speed vs. AQI).
 * **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions (e.g., High PM2.5 + Low Wind Speed = High AQI).
+* 📄 **[View Full Model Analysis (SHAP)](docs/SHAP_Analysis.pdf)**
 
 ### 5. Enterprise Dashboard 📊
 * **Real-Time Status:** Shows live "Feature Store" connection status.
