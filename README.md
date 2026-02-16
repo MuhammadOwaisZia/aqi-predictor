@@ -7,7 +7,7 @@
 ![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-Automated-blue?style=for-the-badge&logo=github-actions)
 ![Scikit-Learn](https://img.shields.io/badge/scikit--learn-%23F7931E.svg?style=for-the-badge&logo=scikit-learn&logoColor=white)
 
-**Live Dashboard:** [Click Here to View App](https://your-app-url-here.streamlit.app)
+**Live Dashboard:** [Click Here to View App](https://aqi-predictor-bnnsvmwps42vwef3dp6pde.streamlit.app/)
 
 ---
 
