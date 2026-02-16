@@ -70,6 +70,11 @@ The system follows a modern **Serverless MLOps** architecture:
 
 ---
 
+## 📸 Dashboard Preview
+![Dashboard Screenshot](images/dashboard_screenshot.png)
+
+---
+
 ## 🚀 How to Run Locally
 
 1.  **Clone the Repository**
