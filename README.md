@@ -82,7 +82,7 @@ aqi-predictor/
 
 * **EDA:** Conducted comprehensive Exploratory Data Analysis to identify correlations.
 * **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions.
-* 📄 **[View Full Model Analysis (SHAP)]()**
+* 📄 **[View Full Model Analysis (SHAP)](docs/SHAP_Analysis.pdf)**
 
 ### 5. Enterprise Dashboard 📊
 
@@ -95,6 +95,8 @@ aqi-predictor/
 ## 📸 Dashboard Preview
 
 ### 1. Real-Time Forecast & Air Quality Overview
+
+![Main Dashboard](images/dashboard_screenshot.png)
 
 ### 2. Temporal Trends & Feature Distribution
 
