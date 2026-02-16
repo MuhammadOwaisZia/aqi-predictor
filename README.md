@@ -80,7 +80,7 @@ aqi-predictor/
 
 ### 4. Advanced Analytics & Explainability 🔍
 
-* **EDA:** Conducted comprehensive Exploratory Data Analysis to identify correlations (e.g., Wind Speed vs. AQI).
+* **EDA:** Conducted comprehensive Exploratory Data Analysis to identify correlations.
 * **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions.
 * 📄 **[View Full Model Analysis (SHAP)]()**
 
@@ -93,6 +93,22 @@ aqi-predictor/
 ---
 
 ## 📸 Dashboard Preview
+
+### 1. Real-Time Forecast & Air Quality Overview
+
+### 2. Temporal Trends & Feature Distribution
+
+<p float="left">
+<img src="images/dashboard_screenshot%20(2).png" width="48%" />
+<img src="images/dashboard_screenshot%20(3).png" width="48%" />
+</p>
+
+### 3. Historical Correlation & Model Analysis
+
+<p float="left">
+<img src="images/dashboard_screenshot%20(4).png" width="48%" />
+<img src="images/dashboard_screenshot%20(5).png" width="48%" />
+</p>
 
 ---
 
