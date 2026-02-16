@@ -1,3 +1,10 @@
+Here is the **fully updated and corrected `README.md**`.
+
+I have placed the **Project Structure** section exactly where we discussed: immediately after the **Technology Stack** and before the **Key Features**.
+
+### 📄 Copy This Entire Block into `README.md`
+
+```markdown
 # ☁️ Pearls AQI Predictor
 ### An End-to-End MLOps Solution for Real-Time Air Quality Forecasting
 
@@ -56,27 +63,36 @@ aqi-predictor/
 ├── requirements.txt     # Python dependencies
 └── README.md            # Project documentation
 
+```
+
+---
+
 ## ✨ Key Features
 
 ### 1. Automated Data Pipelines 🔄
+
 * **Hourly Fetch:** A GitHub Action triggers every hour (`0 * * * *`) to fetch live AQI, PM2.5, PM10, Temperature, and Humidity.
 * **Self-Healing:** Implemented robust **retry logic** (3 attempts with backoff) to handle API timeouts and network failures automatically.
 
 ### 2. Historical Backfill 📚
+
 * Ingested **2 years of historical data** to create a robust training dataset.
 * Computed derived features (e.g., lag features, rolling averages) to capture temporal dependencies.
 
 ### 3. Model Training & Evaluation 🤖
+
 * **Model:** Random Forest Regressor (Optimized for non-linear relationships).
 * **Metrics:** Evaluated using RMSE (Root Mean Squared Error), MAE (Mean Absolute Error), and R² Score.
 * **Model Registry:** Trained models are versioned and stored in Hopsworks for easy rollback and deployment.
 
 ### 4. Advanced Analytics & Explainability 🔍
+
 * **EDA:** Conducted comprehensive Exploratory Data Analysis to identify correlations (e.g., Wind Speed vs. AQI).
 * **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions (e.g., High PM2.5 + Low Wind Speed = High AQI).
-* 📄 **[View Full Model Analysis (SHAP)](docs/SHAP_Analysis.pdf)**
+* 📄 **[View Full Model Analysis (SHAP)]()**
 
 ### 5. Enterprise Dashboard 📊
+
 * **Real-Time Status:** Shows live "Feature Store" connection status.
 * **3-Day Forecast:** Displays "Day Low" and "Day High" ranges for the next 72 hours.
 * **Interactive Charts:** Zoomable Plotly graphs comparing historical trends vs. future predictions.
@@ -84,47 +100,57 @@ aqi-predictor/
 ---
 
 ## 📸 Dashboard Preview
-![Dashboard Screenshot](images/dashboard_screenshot.png)
 
 ---
 
 ## 🚀 How to Run Locally
 
-1.  **Clone the Repository**
-    ```bash
-    git clone [https://github.com/MuhammadOwaisZia/aqi-predictor.git](https://github.com/MuhammadOwaisZia/aqi-predictor.git)
-    cd aqi-predictor
-    ```
+1. **Clone the Repository**
+```bash
+git clone [https://github.com/MuhammadOwaisZia/aqi-predictor.git](https://github.com/MuhammadOwaisZia/aqi-predictor.git)
+cd aqi-predictor
 
-2.  **Install Dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
+```
 
-3.  **Set Up Secrets**
-    Create a `.env` file in the root directory and add your Hopsworks API Key:
-    ```env
-    HOPSWORKS_API_KEY=your_secret_api_key_here
-    ```
 
-4.  **Run the Dashboard**
-    ```bash
-    streamlit run app.py
-    ```
+2. **Install Dependencies**
+```bash
+pip install -r requirements.txt
+
+```
+
+
+3. **Set Up Secrets**
+Create a `.env` file in the root directory and add your Hopsworks API Key:
+```env
+HOPSWORKS_API_KEY=your_secret_api_key_here
+
+```
+
+
+4. **Run the Dashboard**
+```bash
+streamlit run app.py
+
+```
+
+
 
 ---
 
 ## 🤖 Automation Workflows (CI/CD)
+
 This project uses **GitHub Actions** for orchestration:
 
 | Workflow | Schedule | Description |
-| :--- | :--- | :--- |
+| --- | --- | --- |
 | **Hourly Data Fetch** | `0 * * * *` (Hourly) | Fetches live data from Open-Meteo and pushes to Hopsworks. |
 | **Daily Model Retrain** | `0 0 * * *` (Daily) | Retrains the model on the latest data and updates the registry. |
 
 ---
 
 ## 📈 Future Improvements
+
 * [ ] **Alert System:** Integrate Email/SMS alerts when AQI > 200 (Hazardous).
 * [ ] **Geo-Expansion:** Add support for Lahore and Islamabad.
 * [ ] **Deep Learning:** Experiment with LSTM or Transformer models for longer-horizon forecasting.
