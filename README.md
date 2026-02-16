@@ -56,114 +56,63 @@ aqi-predictor/
 ├── requirements.txt     # Python dependencies
 └── README.md            # Project documentation
 
-```
+✨ Key Features
+1. Automated Data Pipelines 🔄
+Hourly Fetch: A GitHub Action triggers every hour (0 * * * *) to fetch live AQI, PM2.5, PM10, Temperature, and Humidity.
 
----
+Self-Healing: Implemented robust retry logic (3 attempts with backoff) to handle API timeouts and network failures automatically.
 
-## ✨ Key Features
+2. Historical Backfill 📚
+Ingested 2 years of historical data to create a robust training dataset.
 
-### 1. Automated Data Pipelines 🔄
+Computed derived features (e.g., lag features, rolling averages) to capture temporal dependencies.
 
-* **Hourly Fetch:** A GitHub Action triggers every hour (`0 * * * *`) to fetch live AQI, PM2.5, PM10, Temperature, and Humidity.
-* **Self-Healing:** Implemented robust **retry logic** (3 attempts with backoff) to handle API timeouts and network failures automatically.
+3. Model Training & Evaluation 🤖
+Model: Random Forest Regressor (Optimized for non-linear relationships).
 
-### 2. Historical Backfill 📚
+Metrics: Evaluated using RMSE (Root Mean Squared Error), MAE (Mean Absolute Error), and R² Score.
 
-* Ingested **2 years of historical data** to create a robust training dataset.
-* Computed derived features (e.g., lag features, rolling averages) to capture temporal dependencies.
+Model Registry: Trained models are versioned and stored in Hopsworks for easy rollback and deployment.
 
-### 3. Model Training & Evaluation 🤖
+4. Advanced Analytics & Explainability 🔍
+EDA: Conducted comprehensive Exploratory Data Analysis to identify correlations.
 
-* **Model:** Random Forest Regressor (Optimized for non-linear relationships).
-* **Metrics:** Evaluated using RMSE (Root Mean Squared Error), MAE (Mean Absolute Error), and R² Score.
-* **Model Registry:** Trained models are versioned and stored in Hopsworks for easy rollback and deployment.
+SHAP Analysis: Integrated SHAP values to explain why the model makes specific predictions.
 
-### 4. Advanced Analytics & Explainability 🔍
+📄 View Full Model Analysis (SHAP)
 
-* **EDA:** Conducted comprehensive Exploratory Data Analysis to identify correlations.
-* **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions.
-* 📄 **[View Full Model Analysis (SHAP)]()**
-
-### 5. Enterprise Dashboard 📊
-
-* **Real-Time Status:** Shows live "Feature Store" connection status.
-* **3-Day Forecast:** Displays "Day Low" and "Day High" ranges for the next 72 hours.
-* **Interactive Charts:** Zoomable Plotly graphs comparing historical trends vs. future predictions.
-
----
-
-## 📸 Dashboard Preview
-
-### 1. Real-Time Forecast & Air Quality Overview
-
-### 2. Temporal Trends & Feature Distribution
-
+📸 Dashboard Preview
+1. Real-Time Forecast & Air Quality Overview
+2. Temporal Trends & Feature Distribution
 <p float="left">
 <img src="images/dashboard_screenshot%20(2).png" width="48%" />
 <img src="images/dashboard_screenshot%20(3).png" width="48%" />
 </p>
 
-### 3. Historical Correlation & Model Analysis
-
+3. Historical Correlation & Model Analysis
 <p float="left">
 <img src="images/dashboard_screenshot%20(4).png" width="48%" />
 <img src="images/dashboard_screenshot%20(5).png" width="48%" />
 </p>
 
----
+🚀 How to Run Locally
+Clone the Repository
 
-## 🚀 How to Run Locally
-
-1. **Clone the Repository**
-
-```bash
+Bash
 git clone [https://github.com/MuhammadOwaisZia/aqi-predictor.git](https://github.com/MuhammadOwaisZia/aqi-predictor.git)
 cd aqi-predictor
+Install Dependencies
 
-```
-
-2. **Install Dependencies**
-
-```bash
+Bash
 pip install -r requirements.txt
+Set Up Secrets
+Create a .env file in the root directory and add your Hopsworks API Key:
 
-```
-
-3. **Set Up Secrets**
-Create a `.env` file in the root directory and add your Hopsworks API Key:
-
-```env
+Code snippet
 HOPSWORKS_API_KEY=your_secret_api_key_here
+Run the Dashboard
 
-```
-
-4. **Run the Dashboard**
-
-```bash
+Bash
 streamlit run app.py
-
-```
-
----
-
-## 🤖 Automation Workflows (CI/CD)
-
-This project uses **GitHub Actions** for orchestration:
-
-| Workflow | Schedule | Description |
-| --- | --- | --- |
-| **Hourly Data Fetch** | `0 * * * *` (Hourly) | Fetches live data from Open-Meteo and pushes to Hopsworks. |
-| **Daily Model Retrain** | `0 0 * * *` (Daily) | Retrains the model on the latest data and updates the registry. |
-
----
-
-## 📈 Future Improvements
-
-* [ ] **Alert System:** Integrate Email/SMS alerts when AQI > 200 (Hazardous).
-* [ ] **Geo-Expansion:** Add support for Lahore and Islamabad.
-* [ ] **Deep Learning:** Experiment with LSTM or Transformer models for longer-horizon forecasting.
-
----
-
-**Author:** Muhammad Owais Zia
-*Built as part of the 10Pearls MLOps Certification.*
+Author: Muhammad Owais Zia
+Built as part of the 10Pearls MLOps Certification.
