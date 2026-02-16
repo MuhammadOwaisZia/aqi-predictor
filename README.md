@@ -81,7 +81,7 @@ aqi-predictor/
 ### 4. Advanced Analytics & Explainability 🔍
 
 * **EDA:** Conducted comprehensive Exploratory Data Analysis to identify correlations (e.g., Wind Speed vs. AQI).
-* **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions (e.g., High PM2.5 + Low Wind Speed = High AQI).
+* **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions.
 * 📄 **[View Full Model Analysis (SHAP)]()**
 
 ### 5. Enterprise Dashboard 📊
@@ -99,35 +99,34 @@ aqi-predictor/
 ## 🚀 How to Run Locally
 
 1. **Clone the Repository**
+
 ```bash
 git clone [https://github.com/MuhammadOwaisZia/aqi-predictor.git](https://github.com/MuhammadOwaisZia/aqi-predictor.git)
 cd aqi-predictor
 
 ```
 
-
 2. **Install Dependencies**
+
 ```bash
 pip install -r requirements.txt
 
 ```
 
-
 3. **Set Up Secrets**
 Create a `.env` file in the root directory and add your Hopsworks API Key:
+
 ```env
 HOPSWORKS_API_KEY=your_secret_api_key_here
 
 ```
 
-
 4. **Run the Dashboard**
+
 ```bash
 streamlit run app.py
 
 ```
-
-
 
 ---
 
