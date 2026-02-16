@@ -84,6 +84,12 @@ aqi-predictor/
 * **SHAP Analysis:** Integrated SHAP values to explain *why* the model makes specific predictions.
 * 📄 **[View Full Model Analysis (SHAP)]()**
 
+### 5. Enterprise Dashboard 📊
+
+* **Real-Time Status:** Shows live "Feature Store" connection status.
+* **3-Day Forecast:** Displays "Day Low" and "Day High" ranges for the next 72 hours.
+* **Interactive Charts:** Zoomable Plotly graphs comparing historical trends vs. future predictions.
+
 ---
 
 ## 📸 Dashboard Preview
@@ -137,6 +143,25 @@ HOPSWORKS_API_KEY=your_secret_api_key_here
 streamlit run app.py
 
 ```
+
+---
+
+## 🤖 Automation Workflows (CI/CD)
+
+This project uses **GitHub Actions** for orchestration:
+
+| Workflow | Schedule | Description |
+| --- | --- | --- |
+| **Hourly Data Fetch** | `0 * * * *` (Hourly) | Fetches live data from Open-Meteo and pushes to Hopsworks. |
+| **Daily Model Retrain** | `0 0 * * *` (Daily) | Retrains the model on the latest data and updates the registry. |
+
+---
+
+## 📈 Future Improvements
+
+* [ ] **Alert System:** Integrate Email/SMS alerts when AQI > 200 (Hazardous).
+* [ ] **Geo-Expansion:** Add support for Lahore and Islamabad.
+* [ ] **Deep Learning:** Experiment with LSTM or Transformer models for longer-horizon forecasting.
 
 ---
 
