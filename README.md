@@ -1,10 +1,3 @@
-Here is the **fully updated and corrected `README.md**`.
-
-I have placed the **Project Structure** section exactly where we discussed: immediately after the **Technology Stack** and before the **Key Features**.
-
-### 📄 Copy This Entire Block into `README.md`
-
-```markdown
 # ☁️ Pearls AQI Predictor
 ### An End-to-End MLOps Solution for Real-Time Air Quality Forecasting
 
