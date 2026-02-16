@@ -43,6 +43,19 @@ The system follows a modern **Serverless MLOps** architecture:
 
 ---
 
+## 📂 Project Structure
+```bash
+aqi-predictor/
+├── .github/workflows/   # CI/CD Automations (Hourly Fetch & Daily Retrain)
+├── data_pipeline/       # Scripts for fetching & processing data
+│   └── hourly_aqi_pipeline.py
+├── docs/                # Documentation & Analysis files
+│   └── SHAP_Analysis.pdf
+├── images/              # Screenshots for README
+├── app.py               # Main Streamlit Dashboard application
+├── requirements.txt     # Python dependencies
+└── README.md            # Project documentation
+
 ## ✨ Key Features
 
 ### 1. Automated Data Pipelines 🔄
