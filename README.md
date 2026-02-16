@@ -115,4 +115,4 @@ This project uses **GitHub Actions** for orchestration:
 ---
 
 **Author:** Muhammad Owais Zia
-*Built as part of the Pearls MLOps Certification.*
+*Built as part of the 10Pearls MLOps Certification.*
